@@ -1,0 +1,86 @@
+name: Windows portable build
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    outputs:
+      version: ${{ steps.version.outputs.number }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13.12'
+          architecture: x64
+      - name: Read the application version
+        id: version
+        shell: powershell
+        run: |
+          if ((Get-Content -Raw gogdl_backend.py) -notmatch '(?m)^APP_VERSION = "([0-9]+\.[0-9]+\.[0-9]+)"\r?$') {
+              throw 'Could not find the GOGDL version.'
+          }
+          [IO.File]::AppendAllText($env:GITHUB_OUTPUT, "number=$($Matches[1])`n")
+      - name: Build and smoke-test the portable package
+        shell: powershell
+        run: .\packaging\build-windows.ps1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: gogdl-windows-${{ github.run_attempt }}
+          path: dist/GOGDL-Windows-x64.zip
+          if-no-files-found: error
+
+  release:
+    if: github.event_name == 'push'
+    needs: build
+    concurrency:
+      group: windows-release-${{ needs.build.outputs.version }}
+      cancel-in-progress: false
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: gogdl-windows-${{ github.run_attempt }}
+      - name: Publish the Windows release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          VERSION: ${{ needs.build.outputs.version }}
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+          COMMIT: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          tag="v$VERSION"
+          if [[ "$REF_TYPE" == tag && "$REF_NAME" != "$tag" ]]; then
+            echo "Tag $REF_NAME must match application version $tag." >&2
+            exit 1
+          fi
+          if gh release view "$tag" >/dev/null 2>&1; then
+            echo "Release $tag already exists."
+            exit 0
+          fi
+          if tagged_commit=$(gh api "repos/$GH_REPO/commits/$tag" --jq .sha 2>/dev/null); then
+            if [[ "$tagged_commit" != "$COMMIT" ]]; then
+              echo "Tag $tag points to $tagged_commit, not the built commit $COMMIT." >&2
+              exit 1
+            fi
+            gh release create "$tag" GOGDL-Windows-x64.zip --verify-tag --title "GOGDL $tag" --generate-notes
+          else
+            gh release create "$tag" GOGDL-Windows-x64.zip --target "$COMMIT" --title "GOGDL $tag" --generate-notes
+          fi
