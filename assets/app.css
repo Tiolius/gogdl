@@ -4,6 +4,10 @@
 [hidden]{display:none!important}
 body{margin:0;min-height:100vh;display:flex;flex-direction:column;background:var(--page);color:var(--text);visibility:hidden}
 :root[data-theme] body{visibility:visible}
+.app-window{height:100vh;overflow:hidden}
+.app-window > header{flex-shrink:0}
+.app-window > main{min-height:0;overflow:auto}
+#home > :not(.log-card){flex-shrink:0}
 header{background:var(--header);display:flex;align-items:center;justify-content:space-between;gap:12px;padding:11px 16px;border-bottom:1px solid var(--border)}
 main{width:100%;max-width:1150px;align-self:center;padding:12px 16px;display:flex;flex:1;flex-direction:column;gap:12px}
 .card{padding:14px;background:var(--paper);border:1px solid var(--border);border-radius:10px;min-width:0}
@@ -49,7 +53,8 @@ input[type=checkbox]{accent-color:var(--accent)}
 #matches{position:absolute;z-index:2;top:100%;left:0;right:0;max-height:220px;overflow:auto;background:var(--paper);border:1px solid var(--border);border-radius:6px;box-shadow:0 4px 16px #0003}
 #matches button{white-space:normal;text-align:left;display:block;width:100%;border:0;border-radius:0}
 .log-card,.prefs-card{display:flex;flex:1;flex-direction:column}
-pre{font:inherit;height:0;min-height:80px;flex:1;overflow:auto;margin:0;background:var(--field);padding:8px;border-radius:5px;white-space:pre-wrap;overflow-wrap:anywhere}
+.log-card{flex:1 0 144px;min-height:0}
+pre{font:inherit;min-height:0;flex:1 1 0px;overflow:auto;margin:0;background:var(--field);padding:8px;border-radius:5px;white-space:pre-wrap;overflow-wrap:anywhere}
 footer p{margin:0;overflow-wrap:anywhere}
 .prefs-card{gap:10px}
 #tabs{display:flex;flex-wrap:wrap;gap:6px;border-bottom:1px solid var(--border);padding-bottom:7px}
@@ -62,23 +67,7 @@ footer p{margin:0;overflow-wrap:anywhere}
 .setting{display:grid;grid-template-columns:minmax(140px,1fr) minmax(130px,1fr);gap:8px;align-items:center;padding:4px 3px}
 .setting.check,.setting .folder{display:flex;gap:7px}
 #versionDetails{width:max-content;max-width:100%;margin-bottom:10px}
-.language-flag {
-  width: 21px;
-  height: 14px;
-  border: 1px solid #ffffff40;
-  border-radius: 2px;
-  background:
-    linear-gradient(90deg, transparent 42%, #cf142b 42% 58%, transparent 58%),
-    linear-gradient(transparent 38%, #cf142b 38% 62%, transparent 62%),
-    linear-gradient(90deg, transparent 35%, white 35% 65%, transparent 65%),
-    linear-gradient(transparent 28%, white 28% 72%, transparent 72%),
-    linear-gradient(34deg, transparent 43%, white 43% 57%, transparent 57%),
-    linear-gradient(-34deg, transparent 43%, white 43% 57%, transparent 57%) #012169;
-}
-:root[lang=ru] .language-flag {
-  border-color: #8a8d9666;
-  background: linear-gradient(white 0 33.33%, #0039a6 33.33% 66.67%, #d52b1e 66.67%);
-}
+#language{min-width:42px;font-size:13px;font-weight:600}
 #accountCredentialLabel{display:block;margin-top:14px;margin-bottom:4px}
 .account-credential{max-width:620px}
 .account-credential input{flex:1}

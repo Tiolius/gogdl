@@ -1,5 +1,6 @@
 """Windows host for the local TypeScript UI with sign-in in an external browser."""
 
+import base64
 import ctypes
 import json
 import os
@@ -7,6 +8,8 @@ import queue
 import re
 import subprocess
 import sys
+import threading
+from ctypes import wintypes
 from pathlib import Path
 
 from gogdl_backend import Backend, PROJECT
@@ -49,6 +52,161 @@ def open_login_browser(url):
         else:
             return
     os.startfile(url)
+
+
+def browser_callback_windows():
+    """Find ordinary Chromium and Firefox windows showing the GOG return page."""
+    win = ctypes.WinDLL("user32")
+    callback_type = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+    win.EnumWindows.argtypes = (callback_type, wintypes.LPARAM)
+    win.IsWindowVisible.argtypes = (wintypes.HWND,)
+    win.GetClassNameW.argtypes = (wintypes.HWND, wintypes.LPWSTR, ctypes.c_int)
+    win.GetWindowTextW.argtypes = win.GetClassNameW.argtypes
+    windows = []
+
+    @callback_type
+    def inspect_window(handle, _):
+        if not win.IsWindowVisible(handle):
+            return True
+        name = ctypes.create_unicode_buffer(64)
+        win.GetClassNameW(handle, name, len(name))
+        if name.value not in {"Chrome_WidgetWin_1", "MozillaWindowClass"}:
+            return True
+        title = ctypes.create_unicode_buffer(64)
+        win.GetWindowTextW(handle, title, len(title))
+        if re.match(r"^(?:https://)?embed[.]gog[.]com(?:[/\s]|$)", title.value, re.IGNORECASE):
+            windows.append(handle)
+        return True
+
+    win.EnumWindows(inspect_window, 0)
+    return windows
+
+
+# Windows PowerShell loads the Windows UI Automation assemblies in .NET Framework.
+# Read only browser chrome. Documents can contain passwords or other form inputs.
+READ_BROWSER_ADDRESS = r"""
+$ErrorActionPreference = 'Stop'
+try {
+    Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes
+    $walker = [System.Windows.Automation.TreeWalker]::ControlViewWalker
+} catch {
+    exit 21
+}
+
+foreach ($window in $windows) {
+    try {
+        $root = [System.Windows.Automation.AutomationElement]::FromHandle([IntPtr][long]$window)
+        if ($null -eq $root) { continue }
+        $stack = [System.Collections.Stack]::new()
+        $stack.Push($walker.GetFirstChild($root))
+        $visited = 0
+        while ($stack.Count -and $visited -lt 256) {
+            $element = $stack.Pop()
+            if ($null -eq $element) { continue }
+            $visited++
+            $stack.Push($walker.GetNextSibling($element))
+            $control = $element.Current.ControlType
+            if ($control -eq [System.Windows.Automation.ControlType]::Document) { continue }
+            if ($control -eq [System.Windows.Automation.ControlType]::Edit) {
+                $pattern = $null
+                if ($element.TryGetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern, [ref]$pattern)) {
+                    $address = $pattern.Current.Value
+                    if ($address -cmatch '^(?:https://)?embed[.]gog[.]com/on_login_success[?]') {
+                        if (-not $confirmation) {
+                            [Console]::WriteLine($address)
+                        } elseif ($address -cmatch $statePattern -and -not $pattern.Current.IsReadOnly) {
+                            if ([GogdlForeground]::GetForegroundWindow() -ne [IntPtr][long]$window) { continue }
+                            $element.SetFocus()
+                            if ([GogdlForeground]::GetForegroundWindow() -ne [IntPtr][long]$window -or
+                                -not [System.Windows.Automation.AutomationElement]::FocusedElement.Equals($element) -or
+                                $pattern.Current.Value -cnotmatch $statePattern) { continue }
+                            $pattern.SetValue($confirmation)
+                            if ([GogdlForeground]::GetForegroundWindow() -eq [IntPtr][long]$window -and
+                                [System.Windows.Automation.AutomationElement]::FocusedElement.Equals($element) -and
+                                $pattern.Current.Value -ceq $confirmation) {
+                                [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
+                                exit 0
+                            }
+                        }
+                    }
+                }
+            }
+            $stack.Push($walker.GetFirstChild($element))
+        }
+    } catch [System.Windows.Automation.ElementNotAvailableException] {
+        continue
+    } catch [System.ArgumentException] {
+        continue
+    } catch {
+        exit 22
+    }
+}
+"""
+
+
+CONFIRMATION_SETUP = r"""
+$ErrorActionPreference = 'Stop'
+Add-Type -AssemblyName System.Windows.Forms
+Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+
+public static class GogdlForeground {
+    [DllImport("user32.dll")]
+    public static extern IntPtr GetForegroundWindow();
+}
+'@
+$statePattern = '[?&]state=' + [regex]::Escape($loginState) + '(?:&|#|$)'
+"""
+
+
+def run_browser_address_script(windows, setup=""):
+    script = "$windows = @(" + ",".join(str(int(handle)) for handle in windows) + ")\n" + setup + READ_BROWSER_ADDRESS
+    command = base64.b64encode(script.encode("utf-16-le")).decode("ascii")
+    powershell = Path(os.environ.get("SystemRoot", r"C:\Windows")) / "System32" / "WindowsPowerShell" / "v1.0" / "powershell.exe"
+    try:
+        result = subprocess.run(
+            [str(powershell), "-NoLogo", "-NoProfile", "-NonInteractive", "-STA", "-EncodedCommand", command],
+            stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+            creationflags=subprocess.CREATE_NO_WINDOW, timeout=8,
+        )
+    except subprocess.TimeoutExpired:
+        return
+    except OSError:
+        raise RuntimeError("UIA-20") from None
+    if result.returncode:
+        raise RuntimeError({21: "UIA-21", 22: "UIA-22"}.get(result.returncode, "UIA-23"))
+    return result.stdout
+
+
+def browser_callback_urls():
+    windows = browser_callback_windows()
+    if not windows:
+        return
+    output = run_browser_address_script(windows)
+    if output is None:
+        return
+    for address in output.decode("ascii", errors="ignore").splitlines():
+        if address.startswith("https://embed.gog.com/on_login_success?"):
+            yield address
+        elif address.startswith("embed.gog.com/on_login_success?"):
+            yield "https://" + address
+
+
+def show_sign_in_complete(state, language, theme):
+    windows = browser_callback_windows()
+    if not windows:
+        return
+    page = PROJECT / "assets" / "sign-in-complete.html"
+    confirmation = f"{page.as_uri()}#{language}-{theme}"
+    # The script receives only the attempt ID and the local page, without the authorization code.
+    page_literal = confirmation.replace("'", "''")
+    state_literal = state.replace("'", "''")
+    setup = f"$confirmation = '{page_literal}'\n$loginState = '{state_literal}'\n" + CONFIRMATION_SETUP
+    try:
+        run_browser_address_script(windows, setup)
+    except RuntimeError:
+        pass  # GOGDL already confirms that the token was saved.
 
 
 def run():
@@ -172,11 +330,11 @@ def run():
                 elif action == "openFolder":
                     os.startfile(PROJECT)
                 elif action == "login":
-                    backend.begin_login(open_login_browser)
-                elif action == "loginCallback" and isinstance(value, str):
-                    backend.complete_login(value)
+                    backend.begin_login(open_login_browser, browser_callback_urls)
                 elif action == "saveToken" and isinstance(value, str):
                     backend.save_manual_token(value)
+                elif action == "removeToken":
+                    backend.remove_token()
                 elif action == "cancelLogin":
                     backend.cancel_login()
             except (OSError, ValueError, TypeError) as error:
@@ -216,7 +374,12 @@ def run():
                     pending_update = data
                     form.Close()
                     return
-                push(kind, data)
+                if kind == "showSignInComplete":
+                    threading.Thread(
+                        target=show_sign_in_complete, args=(data, language, backend.settings["theme"]), daemon=True,
+                    ).start()
+                else:
+                    push(kind, data)
             backend.messages.clear()
             if backend.dirty:
                 push("state", backend.snapshot())
