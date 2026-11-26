@@ -79,3 +79,6 @@ footer p{margin:0;overflow-wrap:anywhere}
   border-color: #8a8d9666;
   background: linear-gradient(white 0 33.33%, #0039a6 33.33% 66.67%, #d52b1e 66.67%);
 }
+#accountCredentialLabel{display:block;margin-top:14px;margin-bottom:4px}
+.account-credential{max-width:620px}
+.account-credential input{flex:1}
