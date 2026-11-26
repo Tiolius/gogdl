@@ -1781,7 +1781,7 @@ def browser_login_code():
         return None
 
 
-def exchange_login_code(session, code):
+def exchange_login_code(session, code, token_path=TOKEN_FILENAME):
     token_start = time.time()
     response = request(session, GOG_TOKEN_URL, args={
         'client_id': GOG_CLIENT_ID, 'client_secret': GOG_SECRET,
@@ -1794,7 +1794,7 @@ def exchange_login_code(session, code):
         return False
     token['expiry'] = token_start + token['expires_in']
     try:
-        save_token(token)
+        save_token(token, token_path)
     except OSError:
         login_event("token_write_failed")
         raise
@@ -2002,14 +2002,14 @@ def makeGOGSession(loginSession=False):
             sys.exit(1)
     return gogSession
 
-def save_token(token):
+def save_token(token, token_path=TOKEN_FILENAME):
     info('saving token...')
     try:
-        with codecs.open(TOKEN_FILENAME, 'w', 'utf-8') as w:
+        with codecs.open(token_path, 'w', 'utf-8') as w:
             pprint.pprint(token, width=123, stream=w)
         info('saved token')
     except KeyboardInterrupt:
-        with codecs.open(TOKEN_FILENAME, 'w', 'utf-8') as w:
+        with codecs.open(token_path, 'w', 'utf-8') as w:
             pprint.pprint(token, width=123, stream=w)
         info('saved token')            
         raise

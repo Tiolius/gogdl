@@ -76,7 +76,8 @@ LOG_FIELDS = (
 def load_settings(path, defaults_only=False):
     defaults = {field.key: field.default for field in (*UPDATE_FIELDS, *DOWNLOAD_FIELDS, *LOG_FIELDS)}
     defaults["destination"] = str(path.parent)
-    defaults["theme"] = "light"
+    defaults["theme"] = "dark"
+    defaults["language"] = "en"
     defaults["saved_login"] = ""
     defaults["window_geometry"] = ""
     defaults["window_maximized"] = False
@@ -92,7 +93,9 @@ def load_settings(path, defaults_only=False):
         if type(saved.get(key)) is type(value):
             defaults[key] = saved[key]
     if defaults["theme"] not in ("light", "dark"):
-        defaults["theme"] = "light"
+        defaults["theme"] = "dark"
+    if defaults["language"] not in ("en", "ru"):
+        defaults["language"] = "en"
     return defaults
 
 

@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="ru">
+<html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -9,43 +9,56 @@
   <script type="module" src="app.js"></script>
 </head>
 <body>
-  <header><strong>Каталог игр GOG</strong><div class="actions">
-    <button id="theme" title="Переключить тему" aria-label="Переключить тему"><span class="material theme-symbol" aria-hidden="true"></span></button>
-    <button id="settings"><span class="material settings-symbol" aria-hidden="true"></span>Настройки</button>
+  <header><strong data-text="GOG game catalog">GOG game catalog</strong><div class="actions">
+    <button id="language" type="button" title="Switch to Russian" aria-label="Switch to Russian"><span class="language-flag" aria-hidden="true"></span></button>
+    <button id="theme" title="Toggle theme" aria-label="Toggle theme"><span class="material theme-symbol" aria-hidden="true"></span></button>
+    <button id="settings"><span class="material settings-symbol" aria-hidden="true"></span><span data-text="Settings">Settings</span></button>
   </div></header>
   <main id="home">
-    <section class="card">
-      <div class="spread"><h2>Обновления</h2><button id="update" class="primary"><span class="material refresh-symbol" aria-hidden="true"></span>Обновить каталог</button></div>
-      <p id="queueHint" class="muted">Сначала обновите каталог</p>
-      <div id="queue" aria-label="Список обновлений"></div>
-      <div class="spread"><p id="queueSize" class="metric">Объём выбранных: 0 Б</p><button id="downloadQueue" class="primary" disabled><span class="material download-symbol" aria-hidden="true"></span>Скачать выбранные</button></div>
+    <section class="card queue-card">
+      <div class="spread"><h2 data-text="Updates">Updates</h2><button id="update" class="primary"><span class="material refresh-symbol" aria-hidden="true"></span><span data-text="Refresh catalog">Refresh catalog</span></button></div>
+      <p id="queueHint" class="muted" data-text="Refresh the catalog first">Refresh the catalog first</p>
+      <div id="queue" aria-label="Updates list"></div>
+      <div class="spread queue-actions"><p id="queueSize" class="metric" data-text="Selected size: 0 B">Selected size: 0 B</p><button id="downloadQueue" class="primary" disabled><span class="material download-symbol" aria-hidden="true"></span><span data-text="Download selected">Download selected</span></button></div>
     </section>
-    <section class="card">
-      <h2>Одна игра из каталога</h2>
+    <section class="card search-card">
+      <div class="spread search-heading">
+        <h2 data-text="Download one game">Download one game</h2>
+        <p id="catalogStatus" class="muted" data-text="Reading catalog…">Reading catalog…</p>
+      </div>
       <div class="actions">
         <div class="field">
-          <input id="search" type="search" placeholder="Поиск по названию или ID" autocomplete="off" aria-label="Поиск по названию или ID">
-          <button id="showGames" aria-label="Показать список игр"><span class="material expand-symbol" aria-hidden="true"></span></button>
+          <input id="search" type="search" placeholder="Search by title or ID" autocomplete="off" aria-label="Search by title or ID">
+          <button id="showGames" aria-label="Show games"><span class="material expand-symbol" aria-hidden="true"></span></button>
           <div id="matches" hidden></div>
         </div>
-        <button id="downloadGame" class="primary" disabled><span class="material download-symbol" aria-hidden="true"></span>Скачать игру</button>
+        <button id="downloadGame" class="primary" disabled><span class="material download-symbol" aria-hidden="true"></span><span data-text="Download game">Download game</span></button>
       </div>
-      <div class="spread"><p id="catalogStatus" class="muted">Чтение каталога…</p><p id="gameSize" class="metric"></p></div>
+      <div class="spread"><p id="gameSize" class="metric"></p></div>
     </section>
-    <section class="card log-card"><h2>Журнал выполнения</h2><pre id="log" tabindex="0"></pre></section>
-    <footer class="spread"><p id="status" class="muted" role="status">Готово к запуску</p>
+    <section class="card log-card"><h2 data-text="Activity log">Activity log</h2><pre id="log" tabindex="0"></pre></section>
+    <footer class="spread"><p id="status" class="muted" role="status" data-text="Ready">Ready</p>
       <div class="actions">
-        <button id="openFolder"><span class="material folder-symbol" aria-hidden="true"></span>Открыть папку проекта</button>
-        <button id="stop" disabled><span class="material stop-symbol" aria-hidden="true"></span>Остановить</button>
+        <button id="openFolder"><span class="material folder-symbol" aria-hidden="true"></span><span data-text="Open project folder">Open project folder</span></button>
+        <button id="stop" disabled><span class="material stop-symbol" aria-hidden="true"></span><span data-text="Stop">Stop</span></button>
       </div>
     </footer>
   </main>
   <main id="preferences" hidden>
     <section class="card prefs-card">
-      <div class="spread"><h2>Настройки</h2><button id="back"><span class="material back-symbol" aria-hidden="true"></span>Назад</button></div>
-      <nav id="tabs" aria-label="Разделы настроек"></nav>
+      <div class="spread"><h2 data-text="Settings">Settings</h2><button id="back"><span class="material back-symbol" aria-hidden="true"></span><span data-text="Back">Back</span></button></div>
+      <nav id="tabs" aria-label="Settings sections"></nav>
       <div id="settingsForm"></div>
-      <footer><button id="save" class="primary">Сохранить</button></footer>
+      <section id="versionInfo" hidden>
+        <dl id="versionDetails">
+          <dt data-text="GOGDL version">GOGDL version</dt><dd id="versionNumber"></dd>
+          <dt data-text="Author">Author</dt><dd id="versionAuthor"></dd>
+          <dt data-text="Version date">Version date</dt><dd><time id="versionDate"></time></dd>
+        </dl>
+        <button id="updateApp" class="primary"><span class="material refresh-symbol" aria-hidden="true"></span><span data-text="Update">Update</span></button>
+        <p id="appUpdateStatus" class="muted" role="status"></p>
+      </section>
+      <footer id="settingsFooter"><button id="save" class="primary" data-text="Save">Save</button></footer>
     </section>
   </main>
 </body>

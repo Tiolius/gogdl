@@ -4,12 +4,13 @@ type Bridge = {
 };
 type Game = [id: string, title: string, slug: string, size: number];
 type State = {
-  status: string; busy: boolean; authenticating: boolean; signedIn: boolean; resume: boolean; free: string;
-  catalogStatus: string; queue: [string, string][]; queueGeneration: number; log: string;
+  updatingApp: boolean; appUpdateStatus: string; status: string; busy: boolean; authenticating: boolean; signedIn: boolean; resume: boolean; free: string;
+  awaitingLogin: boolean; loginStatus: string; catalogStatus: string; queue: [string, string][]; queueGeneration: number; log: string;
 };
 type Value = string | boolean;
 type Field = {key: string; label: string; value: Value; choices: [string, string][]};
-type Settings = {theme: string; savedLogin: boolean; groups: Record<string, Field[]>};
+type Language = "en" | "ru";
+type Settings = {language: Language; version: {number: string; author: string; date: string}; theme: string; savedLogin: boolean; groups: Record<string, Field[]>};
 
 const bridge = (window as unknown as {chrome: {webview: Bridge}}).chrome.webview;
 const get = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -34,21 +35,135 @@ let lastLog = "";
 let resumePrompt = false;
 let state: State | undefined;
 
+const russian: Record<string, string> = {
+  "Save your settings first.": "Сначала сохраните настройки.",
+  "GOG game catalog": "Каталог игр GOG",
+  "Settings": "Настройки", "Updates": "Обновления", "Refresh catalog": "Обновить каталог",
+  "Refresh the catalog first": "Сначала обновите каталог", "Selected size: 0 B": "Объём выбранных: 0 Б",
+  "Download selected": "Скачать выбранные", "Download one game": "Одна игра из каталога",
+  "Download game": "Скачать игру", "Reading catalog…": "Чтение каталога…", "Activity log": "Журнал выполнения",
+  "Ready": "Готово к запуску", "Open project folder": "Открыть папку проекта", "Stop": "Остановить",
+  "Back": "Назад", "Settings sections": "Разделы настроек", "Switch to English": "Переключить на английский",
+  "GOGDL version": "Версия GOGDL", "Author": "Автор", "Version date": "Дата версии", "Save": "Сохранить",
+  "Update": "Обновить", "Updates list": "Список обновлений",
+  "Search by title or ID": "Поиск по названию или ID", "Show games": "Показать список игр",
+  "Light theme": "Светлая тема", "Dark theme": "Тёмная тема",
+  "Free disk space: ": "Свободно на диске: ", "Selected size: ": "Объём выбранных: ", "Game size: ": "Объём игры: ",
+  "GOG token saved": "Токен GOG сохранён", "Not signed in": "Вход ещё не выполнен",
+  "Updates: ": "Обновлений: ", ". Select the games to download.": ". Отметьте игры для загрузки.",
+  "No updates in the queue": "В очереди нет обновлений",
+  "The previous update is incompatible. Discard it and continue?": "Предыдущее обновление несовместимо. Сбросить его и продолжить?",
+  "Sign in with browser": "Войти через браузер", "Cancel sign-in": "Отменить вход",
+  "Remove the password saved by an older version": "Удалить пароль, сохранённый в прежней версии",
+  "Browse…": "Обзор…", "Stop the current operation?": "Остановить текущую операцию?",
+  "Install the update from GitHub main and restart GOGDL?": "Установить обновление из ветки main на GitHub и перезапустить GOGDL?",
+};
+const english: Record<string, string> = {
+  "Аккаунт GOG": "GOG account", "Каталог": "Catalog", "Загрузка": "Downloads",
+  "Журнал": "Log", "Версия": "Version",
+  "ОС": "Operating systems", "Исключить ОС": "Exclude operating systems",
+  "Языки": "Languages", "Исключить языки": "Exclude languages",
+  "Режим обновления": "Refresh mode", "Новые игры и обновления": "New games and updates",
+  "Только новые игры": "New games only", "Только обновления": "Updates only", "Весь каталог": "Entire catalog",
+  "Незавершённое обновление": "Incomplete refresh", "Продолжить при наличии": "Resume if available",
+  "Начать заново": "Start over", "Только продолжить": "Resume only",
+  "Тип установщиков": "Installer type", "Автономные": "Standalone", "Автономные и Galaxy": "Standalone and Galaxy",
+  "Обновить только эти ID или slug": "Refresh only these IDs or slugs", "Исключить ID или slug": "Exclude IDs or slugs",
+  "Задержка перед проверкой, ч": "Delay before refresh, hours", "Пропускать скрытые игры": "Skip hidden games",
+  "Пропускать списки изменений": "Skip changelogs", "Сохранять файлы контрольных сумм MD5": "Save MD5 checksum files",
+  "Сохранять статус проверки только при совпадении MD5": "Keep verification status only if MD5 matches",
+  "При поиске дубликатов учитывать отсутствие MD5": "Check for missing MD5 when finding duplicates",
+  "Мягкая проверка изменений установщиков": "Lenient installer change detection",
+  "Строгая проверка изменений дополнительных материалов": "Strict change detection for extras",
+  "Папка загрузки": "Download folder", "Исключить файлы или шаблоны через ;": "Exclude files or patterns separated by semicolons",
+  "Задержка перед каждой игрой, ч": "Delay before each game, hours", "Лимит на игру, МиБ": "Limit per game, Mb",
+  "Скачивать обложки": "Download covers", "Скачивать фоны": "Download backgrounds",
+  "Удалять старые обложки и фоны вместо переноса в !orphaned": "Delete old covers and backgrounds instead of moving them to !orphaned",
+  "Пропускать дополнительные материалы": "Skip extras", "Пропускать автономные установщики": "Skip standalone installers",
+  "Пропускать установщики Galaxy": "Skip Galaxy installers", "Пропускать общие установщики": "Skip shared installers",
+  "Не резервировать место под файлы заранее": "Skip file preallocation",
+  "Не записывать вывод в gogrepo.log": "Disable writing to gogrepo.log", "Показывать отладочные сообщения": "Show debug messages",
+  "Для входа запустите Setup-GOGDL.cmd": "Run Setup-GOGDL.cmd to enable sign-in",
+  "Вход отменён": "Sign-in canceled", "Окно входа закрыто": "Sign-in window closed",
+  "Не удалось открыть Edge или Chrome. Проверьте, установлен ли один из браузеров.": "Could not start Edge or Chrome. Check that one of the browsers is installed.",
+  "Не удалось открыть страницу входа GOG": "Could not open the GOG sign-in page",
+  "Не удалось завершить вход в браузере": "Could not complete browser sign-in",
+  "Время ожидания входа истекло": "Sign-in timed out", "Готово к запуску": "Ready",
+  "Чтение каталога…": "Reading catalog…", "Сначала обновите каталог": "Refresh the catalog first",
+  "Не удалось прочитать каталог": "Could not read the catalog", "недоступно": "unavailable",
+  "Проверка каталога…": "Refreshing catalog…", "Загрузка…": "Downloading…",
+  "Укажите полный путь к папке загрузки.": "Enter the full path to the download folder.",
+  "Выберите существующую папку загрузки в настройках.": "Choose an existing download folder in Settings.",
+  "Войдите в GOG в открывшемся браузере": "Sign in to GOG in the browser window",
+  "Закрываем окно входа…": "Closing the sign-in window…", "Получение токена GOG…": "Obtaining GOG token…",
+  "Вход в GOG выполнен": "Signed in to GOG", "Не удалось получить токен GOG": "Could not obtain GOG token",
+  "Остановлено": "Stopped", "Проверяем обновление GOGDL…": "Checking for a GOGDL update…",
+  "Перезапускаем GOGDL…": "Restarting GOGDL…", "Установлена актуальная версия GOGDL": "GOGDL is up to date",
+  "Для ОС и языков заполните либо список включения, либо список исключения.": "For each operating system or language filter, use either the inclusion or exclusion list.",
+  "Для обновления заполните либо список выбранных игр, либо список исключений.": "For catalog refresh, use either the selected games or the exclusions list.",
+  "Задержка должна быть неотрицательной, а лимит — положительным числом.": "Enter a nonnegative delay and a positive limit.",
+  "Некорректный формат настроек": "Invalid settings format",
+};
+const englishPrefixes: [string, string][] = [
+  ["Игр в каталоге: ", "Games in catalog: "], ["Ошибка запуска: ", "Launch error: "],
+  ["Процесс завершён · код ", "Process finished · exit code "],
+  ["Не удалось прочитать настройки: ", "Could not read settings: "],
+  ["Не удалось обновить GOGDL: ", "Could not update GOGDL: "],
+  ["Неизвестные коды: ", "Unknown codes: "],
+];
+
+const sizeUnits = {
+  en: ["B", "KiB", "Mb", "Gb", "TiB"],
+  ru: ["Б", "КиБ", "Mb", "Gb", "ТиБ"],
+};
+const backendUnits = ["Б", "КиБ", "МиБ", "ГиБ", "ТиБ"];
+const locale = () => settings?.language === "ru" ? "ru-RU" : "en-US";
+const tr = (label: string) => settings?.language === "ru" ? russian[label] ?? label : label;
+function translate(value: string): string {
+  const disk = /^([\d.]+) (Б|КиБ|МиБ|ГиБ|ТиБ)$/.exec(value);
+  if (disk) return disk[1] + " " + sizeUnits[settings?.language ?? "en"][backendUnits.indexOf(disk[2])];
+  if (settings?.language === "ru") return value.replace("Лимит на игру, МиБ", "Лимит на игру, Mb");
+  if (Object.hasOwn(english, value)) return english[value];
+  for (const [prefix, label] of englishPrefixes) {
+    if (value.startsWith(prefix)) return label + translate(value.slice(prefix.length));
+  }
+  const fieldError = /^(Проверьте значение поля|Выберите значение для поля) «(.+)»[.]$/.exec(value);
+  if (fieldError) {
+    const verb = fieldError[1] === "Проверьте значение поля" ? "Check the value for" : "Choose a value for";
+    return verb + ' "' + translate(fieldError[2]) + '".';
+  }
+  return value;
+}
+
+function localizePage() {
+  document.documentElement.lang = settings?.language ?? "en";
+  const language = button("language");
+  language.title = settings?.language === "ru" ? tr("Switch to English") : "Switch to Russian";
+  language.setAttribute("aria-label", language.title);
+  document.querySelectorAll<HTMLElement>("[data-text]").forEach(element => {
+    element.textContent = tr(element.dataset.text ?? "");
+  });
+  for (const [id, label] of [["queue", "Updates list"], ["showGames", "Show games"], ["tabs", "Settings sections"], ["search", "Search by title or ID"]]) {
+    get(id).setAttribute("aria-label", tr(label));
+  }
+  search.placeholder = tr("Search by title or ID");
+}
+
 function size(bytes: number) {
-  const units = ["Б", "КиБ", "МиБ", "ГиБ", "ТиБ"];
+  const units = sizeUnits[settings?.language ?? "en"];
   let unit = 0;
   while (bytes >= 1024 && unit < units.length - 1) {
     bytes /= 1024;
     unit++;
   }
-  return bytes.toLocaleString("ru-RU", {maximumFractionDigits: 2}) + " " + units[unit];
+  return bytes.toLocaleString(locale(), {maximumFractionDigits: 2}) + " " + units[unit];
 }
 
 function refreshSelection() {
   const total = games.reduce((sum, game) => sum + (selected.has(game[0]) ? game[3] : 0), 0);
-  const free = "Свободно на диске: " + (state?.free ?? "…");
-  get("queueSize").textContent = "Объём выбранных: " + size(total) + " · " + free;
-  get("gameSize").textContent = (selectedGame ? "Объём игры: " + size(selectedGame[3]) + " · " : "") + free;
+  const free = tr("Free disk space: ") + translate(state?.free ?? "…");
+  get("queueSize").textContent = tr("Selected size: ") + size(total) + " · " + free;
+  get("gameSize").textContent = tr("Game size: ") + (selectedGame ? size(selectedGame[3]) : "—") + " · " + free;
   button("downloadQueue").disabled = !selected.size || !!state?.busy;
   button("downloadGame").disabled = !selectedGame || !!state?.busy;
 }
@@ -56,26 +171,29 @@ function refreshSelection() {
 function refreshAccount() {
   const account = document.getElementById("accountStatus");
   const login = document.querySelector<HTMLButtonElement>("#accountLogin");
-  if (!account || !login) return;
-  if (state?.authenticating) {
-    account.textContent = "Завершается вход в GOG…";
-  } else {
-    account.textContent = state?.signedIn ? "Токен GOG сохранён" : "Вход ещё не выполнен";
-  }
+  const cancel = document.querySelector<HTMLButtonElement>("#cancelLogin");
+  if (!account || !login || !cancel) return;
+  account.textContent = translate(state?.loginStatus ?? "") || (state?.signedIn ? tr("GOG token saved") : tr("Not signed in"));
   login.disabled = !!state?.busy;
+  login.hidden = !!state?.authenticating;
+  cancel.hidden = !state?.awaitingLogin;
+  if (cancel.hidden) cancel.disabled = false;
 }
 
 function renderState(next: State) {
   const old = state;
   state = next;
   if (old && old.queueGeneration !== next.queueGeneration) selected.clear();
-  button("update").disabled = button("settings").disabled = next.busy;
-  button("stop").disabled = !next.busy;
-  get("status").textContent = next.status;
-  get("catalogStatus").textContent = next.catalogStatus;
+  button("update").disabled = next.busy;
+  button("settings").disabled = next.busy && !next.authenticating;
+  button("stop").disabled = !next.busy || next.authenticating || next.updatingApp;
+  get("status").textContent = translate(next.status);
+  button("updateApp").disabled = next.busy;
+  get("appUpdateStatus").textContent = translate(next.appUpdateStatus);
+  get("catalogStatus").textContent = translate(next.catalogStatus);
   get("queueHint").textContent = next.queue.length
-    ? "Обновлений: " + next.queue.length + ". Отметьте игры для загрузки."
-    : next.catalogStatus === "Сначала обновите каталог" ? next.catalogStatus : "В очереди нет обновлений";
+    ? tr("Updates: ") + next.queue.length + tr(". Select the games to download.")
+    : next.catalogStatus === "Сначала обновите каталог" ? translate(next.catalogStatus) : tr("No updates in the queue");
   const signature = JSON.stringify([next.queueGeneration, next.queue]);
   if (signature !== lastQueue) {
     lastQueue = signature;
@@ -101,12 +219,13 @@ function renderState(next: State) {
   if (lastLog !== next.log) {
     const log = get("log");
     const follow = log.scrollHeight - log.scrollTop - log.clientHeight < 25;
-    log.textContent = lastLog = next.log;
+    lastLog = next.log;
+    log.textContent = next.log.split("\n").map(translate).join("\n");
     if (follow) log.scrollTop = log.scrollHeight;
   }
   if (next.resume && !resumePrompt) {
     resumePrompt = true;
-    send("resume", confirm("Предыдущее обновление несовместимо. Сбросить его и продолжить?"));
+    send("resume", confirm(tr("The previous update is incompatible. Discard it and continue?")));
   } else if (!next.resume) {
     resumePrompt = false;
   }
@@ -140,20 +259,24 @@ function showMatches(query: string) {
 
 function renderSettings() {
   if (!settings) return;
-  const names = ["Аккаунт GOG", ...Object.keys(settings.groups)];
+  const names = ["Аккаунт GOG", ...Object.keys(settings.groups), "Версия"];
   get("tabs").replaceChildren(...names.map(name => {
     const tab = document.createElement("button");
-    tab.textContent = name;
+    tab.textContent = translate(name);
     tab.setAttribute("aria-current", String(name === activeTab));
     tab.onclick = () => {
       activeTab = name;
       renderSettings();
-      if (name === "Аккаунт GOG") send("warmLogin");
     };
     return tab;
   }));
   const form = get("settingsForm");
   form.replaceChildren();
+  const showVersion = activeTab === "Версия";
+  get("versionInfo").hidden = !showVersion;
+  form.hidden = showVersion;
+  get("settingsFooter").hidden = showVersion;
+  if (showVersion) return;
   if (activeTab === "Аккаунт GOG") {
     const account = document.createElement("p");
     account.id = "accountStatus";
@@ -161,17 +284,23 @@ function renderSettings() {
     const login = document.createElement("button");
     login.id = "accountLogin";
     login.className = "primary";
-    setIconLabel(login, "login", "Войти в GOG");
+    setIconLabel(login, "login", tr("Sign in with browser"));
     login.onclick = () => {
       login.disabled = true;
-      setIconLabel(login, "login", "Открывается форма GOG…");
       send("login");
     };
-    form.append(account, login);
+    const cancel = document.createElement("button");
+    cancel.id = "cancelLogin";
+    cancel.textContent = tr("Cancel sign-in");
+    cancel.onclick = () => {
+      cancel.disabled = true;
+      send("cancelLogin");
+    };
+    form.append(account, login, cancel);
     refreshAccount();
     if (settings.savedLogin) {
       const forget = document.createElement("button");
-      forget.textContent = "Удалить пароль, сохранённый в прежней версии";
+      forget.textContent = tr("Remove the password saved by an older version");
       forget.onclick = () => send("forgetLogin");
       form.append(" ", forget);
     }
@@ -187,13 +316,13 @@ function renderSettings() {
       input.checked = value;
       input.onchange = () => { draft[field.key] = input.checked; };
       row.classList.add("check");
-      row.append(input, field.label);
+      row.append(input, translate(field.label));
     } else {
       const label = document.createElement("span");
-      label.textContent = field.label;
+      label.textContent = translate(field.label);
       const editor = field.choices.length ? document.createElement("select") : document.createElement("input");
       if (editor instanceof HTMLSelectElement) {
-        for (const [name] of field.choices) editor.add(new Option(name, name));
+        for (const [name] of field.choices) editor.add(new Option(translate(name), name));
       }
       editor.value = value;
       editor.oninput = () => { draft[field.key] = editor.value; };
@@ -202,7 +331,7 @@ function renderSettings() {
         const path = document.createElement("span");
         path.className = "folder";
         const browse = document.createElement("button");
-        setIconLabel(browse, "folder", "Обзор…");
+        setIconLabel(browse, "folder", tr("Browse…"));
         browse.onclick = () => send("browse");
         path.append(editor, browse);
         row.append(path);
@@ -247,13 +376,23 @@ button("settings").onclick = () => {
   get("preferences").hidden = false;
   get("home").hidden = true;
   renderSettings();
-  if (activeTab === "Аккаунт GOG") send("warmLogin");
+};
+button("language").onclick = () => send("language", settings?.language === "ru" ? "en" : "ru");
+button("updateApp").onclick = () => {
+  if (Object.keys(draft).length) {
+    alert(tr("Save your settings first."));
+    return;
+  }
+  if (confirm(tr("Install the update from GitHub main and restart GOGDL?"))) {
+    button("updateApp").disabled = true;
+    send("updateApplication");
+  }
 };
 button("back").onclick = closeSettings;
 button("save").onclick = () => send("settings", draft);
 button("update").onclick = () => send("update");
 button("openFolder").onclick = () => send("openFolder");
-button("stop").onclick = () => { if (confirm("Остановить текущую операцию?")) send("stop"); };
+button("stop").onclick = () => { if (confirm(tr("Stop the current operation?"))) send("stop"); };
 button("downloadQueue").onclick = () => send("queue", state?.queue.filter(([id]) => selected.has(id)).map(([id]) => id));
 button("downloadGame").onclick = () => { if (selectedGame) send("download", [selectedGame[0]]); };
 
@@ -267,21 +406,32 @@ bridge.addEventListener("message", event => {
     refreshSelection();
   } else if (kind === "settings" || kind === "settingsSaved") {
     settings = data as Settings;
+    localizePage();
+    if (state) {
+      lastLog = "";
+      renderState(state);
+    }
+    const {number, author, date} = settings.version;
+    get("versionNumber").textContent = number;
+    get("versionAuthor").textContent = author;
+    const releaseDate = get<HTMLTimeElement>("versionDate");
+    releaseDate.dateTime = date;
+    releaseDate.textContent = new Intl.DateTimeFormat(locale(), {
+      dateStyle: "long", timeZone: "UTC",
+    }).format(new Date(date));
     document.documentElement.dataset.theme = settings.theme;
     const theme = button("theme");
     const dark = settings.theme === "dark";
-    theme.title = dark ? "Светлая тема" : "Тёмная тема";
+    theme.title = dark ? tr("Light theme") : tr("Dark theme");
     theme.setAttribute("aria-label", theme.title);
     if (kind === "settingsSaved") closeSettings();
     else if (!get("preferences").hidden) renderSettings();
   } else if (kind === "destination") {
     draft.destination = String(data);
     renderSettings();
-  } else if (kind === "authReturned") {
-    if (!get("preferences").hidden) renderSettings();
   } else if (kind === "error") {
     if (!get("preferences").hidden) renderSettings();
-    alert(String(data));
+    alert(translate(String(data)));
   }
 });
 send("ready");

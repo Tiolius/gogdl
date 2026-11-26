@@ -6,31 +6,46 @@ import os
 import queue
 import re
 import runpy
+import secrets
 import shutil
 import subprocess
 import sys
 import threading
+import time
 from collections import deque
 from dataclasses import asdict
 from fnmatch import fnmatch
 from pathlib import Path
 from urllib.parse import parse_qs, urlencode, urlsplit
 
+from gogdl_updater import download_update
 from gogdl_settings import DOWNLOAD_FIELDS, LOG_FIELDS, UPDATE_FIELDS, cli_options, language_codes, load_settings, save_settings, validate_settings
 
+APP_VERSION = "0.2.0"
+APP_AUTHOR = "Evered"
+APP_VERSION_DATE = "2026-11-26"
 PROJECT = Path(__file__).resolve().parent
 CLI = PROJECT / "gogrepoc.py"
 SETTINGS = PROJECT / "gogdl-settings.json"
 FIELD_GROUPS = {"Каталог": UPDATE_FIELDS, "Загрузка": DOWNLOAD_FIELDS, "Журнал": LOG_FIELDS}
 FIELDS = (*UPDATE_FIELDS, *DOWNLOAD_FIELDS, *LOG_FIELDS)
-GOG_PAGES = {"auth.gog.com", "login.gog.com", "embed.gog.com", "www.gog.com", "gog.com"}
 RESUME_PROMPT = "(D)iscard incompatible manifest or (A)bort? (D/d/A/a): "
 
 
-def callback_code(url):
-    parsed = urlsplit(url)
-    if parsed.scheme == "https" and parsed.netloc == "embed.gog.com" and parsed.path == "/on_login_success":
-        return parse_qs(parsed.query).get("code", [None])[0]
+def callback_code(url, expected_state):
+    try:
+        parsed = urlsplit(url.strip())
+    except ValueError:
+        return None
+    if parsed.scheme != "https" or parsed.netloc != "embed.gog.com" or parsed.path != "/on_login_success":
+        return None
+    params = parse_qs(parsed.query, keep_blank_values=True)
+    codes = params.get("code", [])
+    states = params.get("state", [])
+    if len(codes) != 1 or not codes[0] or len(states) != 1:
+        return None
+    if secrets.compare_digest(states[0].encode(), expected_state.encode()):
+        return codes[0]
     return None
 
 
@@ -43,6 +58,65 @@ def auth_url(state):
         "layout": "client2",
         "state": state,
     })
+
+
+def browser_login(state, cancelled):
+    try:
+        from playwright.sync_api import Error, sync_playwright
+    except ImportError:
+        return None, "Для входа запустите Setup-GOGDL.cmd"
+
+    code = None
+
+    def on_request(request):
+        nonlocal code
+        if code is None and request.is_navigation_request():
+            code = callback_code(request.url, state)
+
+    try:
+        with sync_playwright() as playwright:
+            for channel in ("msedge", "chrome"):
+                if cancelled.is_set():
+                    return None, "Вход отменён"
+                try:
+                    browser = playwright.chromium.launch(channel=channel, headless=False, timeout=10000)
+                    break
+                except Error:
+                    continue
+            else:
+                return None, "Не удалось открыть Edge или Chrome. Проверьте, установлен ли один из браузеров."
+
+            try:
+                context = browser.new_context()
+                context.on("request", on_request)
+                page = context.new_page()
+                try:
+                    page.goto(auth_url(state), wait_until="commit", timeout=15000)
+                except Error:
+                    if not context.pages:
+                        return None, "Окно входа закрыто"
+                    if not code:
+                        return None, "Не удалось открыть страницу входа GOG"
+
+                deadline = time.monotonic() + 600
+                while not code and not cancelled.is_set() and time.monotonic() < deadline:
+                    if not context.pages:
+                        return None, "Окно входа закрыто"
+                    try:
+                        context.pages[0].wait_for_timeout(150)
+                    except Error:
+                        if not context.pages:
+                            return None, "Окно входа закрыто"
+                        raise
+            finally:
+                browser.close()
+    except (Error, OSError):
+        if not code:
+            return None, "Не удалось завершить вход в браузере"
+
+    if cancelled.is_set():
+        return None, "Вход отменён"
+    return (code, "") if code else (None, "Время ожидания входа истекло")
 
 
 def format_size(size):
@@ -94,6 +168,10 @@ class Backend:
         self.stopped = False
         self.resume = False
         self.authenticating = False
+        self.updating_app = False
+        self.app_update_status = ""
+        self.browser_cancel = None
+        self.login_status = ""
         self.free_space = "…"
         self.disk_pending = False
         self.messages = []
@@ -165,8 +243,10 @@ class Backend:
 
     def snapshot(self):
         return {
-            "status": self.status, "busy": bool(self.process or self.authenticating),
-            "authenticating": self.authenticating,
+            "status": self.status, "busy": bool(self.process or self.authenticating or self.updating_app),
+            "updatingApp": self.updating_app, "appUpdateStatus": self.app_update_status,
+            "authenticating": self.authenticating, "awaitingLogin": bool(self.browser_cancel),
+            "loginStatus": self.login_status,
             "signedIn": (PROJECT / "gog-token.dat").is_file(), "resume": self.resume,
             "free": self.free_space, "catalogStatus": self.catalog_status,
             "queueGeneration": self.queue_generation,
@@ -176,7 +256,9 @@ class Backend:
         }
 
     def settings_info(self):
-        return {"theme": self.settings["theme"], "savedLogin": bool(self.settings["saved_login"]),
+        return {"version": {"number": APP_VERSION, "author": APP_AUTHOR, "date": APP_VERSION_DATE},
+                "theme": self.settings["theme"], "language": self.settings["language"],
+                "savedLogin": bool(self.settings["saved_login"]),
                 "groups": {name: [{**asdict(field), "value": self.settings[field.key]} for field in fields]
                            for name, fields in FIELD_GROUPS.items()}}
 
@@ -200,7 +282,7 @@ class Backend:
         self.settings = updated
 
     def start(self, args):
-        if self.process or self.authenticating:
+        if self.process or self.authenticating or self.updating_app:
             return False
         python = Path(sys.executable)
         if python.name.lower() == "pythonw.exe":
@@ -236,7 +318,7 @@ class Backend:
         self.start(["update", *cli_options(UPDATE_FIELDS, self.settings)])
 
     def download(self, ids, batch):
-        if self.process or self.authenticating:
+        if self.process or self.authenticating or self.updating_app:
             return
         chosen = [game_id for game_id in dict.fromkeys(ids) if self.allowed(game_id)
                   and game_id in (self.pending if batch else self.catalog)]
@@ -274,8 +356,50 @@ class Backend:
                 pass
             self.dirty = True
 
+    def update_application(self):
+        if self.process or self.authenticating or self.updating_app:
+            return
+        self.updating_app = True
+        self.status = self.app_update_status = "Проверяем обновление GOGDL…"
+        self.dirty = True
+
+        def check():
+            try:
+                files = download_update(PROJECT)
+            except Exception as error:
+                self.events.put(("appUpdateError", str(error)))
+            else:
+                self.events.put(("appUpdate", files))
+
+        threading.Thread(target=check, daemon=True).start()
+
+    def begin_login(self):
+        if self.process or self.authenticating or self.updating_app:
+            return
+        state = secrets.token_urlsafe(24)
+        cancelled = self.browser_cancel = threading.Event()
+        self.authenticating = True
+        self.status = self.login_status = "Войдите в GOG в открывшемся браузере"
+        self.dirty = True
+
+        def sign_in():
+            try:
+                code, status = browser_login(state, cancelled)
+            except Exception:
+                # Browser errors can include a URL with an authorization code.
+                code, status = None, "Не удалось завершить вход в браузере"
+            self.events.put(("browserLogin", (cancelled, code, status)))
+
+        threading.Thread(target=sign_in).start()
+
+    def cancel_login(self):
+        if self.browser_cancel:
+            self.browser_cancel.set()
+            self.status = self.login_status = "Закрываем окно входа…"
+            self.dirty = True
+
     def exchange_code(self, code):
-        self.status = "Получение токена GOG…"
+        self.status = self.login_status = "Получение токена GOG…"
         self.dirty = True
 
         def exchange():
@@ -283,7 +407,7 @@ class Backend:
                 cli = runpy.run_path(str(CLI))
                 cli["rootLogger"].handlers.clear()
                 with cli["makeGOGSession"](True) as session:
-                    success = cli["exchange_login_code"](session, code)
+                    success = cli["exchange_login_code"](session, code, PROJECT / "gog-token.dat")
             except Exception:
                 # The endpoint URL in an exception can contain the authorization code.
                 success = False
@@ -313,9 +437,28 @@ class Backend:
                     self.refresh_disk()
             elif kind == "resume":
                 self.resume = True
+            elif kind == "appUpdateError":
+                self.updating_app = False
+                self.status = self.app_update_status = f"Не удалось обновить GOGDL: {value}"
+            elif kind == "appUpdate":
+                if value:
+                    self.status = self.app_update_status = "Перезапускаем GOGDL…"
+                    self.messages.append(("restartWithUpdate", value))
+                else:
+                    self.updating_app = False
+                    self.status = self.app_update_status = "Установлена актуальная версия GOGDL"
+            elif kind == "browserLogin":
+                cancelled, code, status = value
+                self.browser_cancel = None
+                if code and not cancelled.is_set():
+                    self.messages.append(("focusAfterLogin", None))
+                    self.exchange_code(code)
+                else:
+                    self.authenticating = False
+                    self.status = self.login_status = "Вход отменён" if cancelled.is_set() else status
             elif kind == "auth":
                 self.authenticating = False
-                self.status = "Вход в GOG выполнен" if value else "Не удалось получить токен GOG"
+                self.status = self.login_status = "Вход в GOG выполнен" if value else "Не удалось получить токен GOG"
                 self.logs.append(self.status)
             elif kind == "exit":
                 success = value == 0 and not self.stopped
