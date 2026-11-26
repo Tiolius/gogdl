@@ -143,6 +143,7 @@ function translate(value: string): string {
 function localizePage() {
   document.documentElement.lang = settings?.language ?? "en";
   const language = button("language");
+  language.textContent = document.documentElement.lang.toUpperCase();
   language.title = settings?.language === "ru" ? tr("Switch to English") : "Switch to Russian";
   language.setAttribute("aria-label", language.title);
   document.querySelectorAll<HTMLElement>("[data-text]").forEach(element => {

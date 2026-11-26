@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <title>GOGDL</title>
+  <link rel="stylesheet" href="app.css">
+  <style>
+    body { display: grid; place-items: center; padding: 24px; }
+    main { display: block; max-width: 460px; padding: 26px; }
+    .app-name { color: var(--accent); font-weight: 600; margin: 0 0 12px; }
+    h1 { font-size: 24px; line-height: 1.25; margin: 0 0 10px; }
+    .muted { margin: 0; }
+  </style>
+</head>
+<body>
+  <main class="card">
+    <p class="app-name">GOGDL</p>
+    <h1 id="heading">Signed in to GOG</h1>
+    <p id="message" class="muted">You can now close this tab and return to GOGDL.</p>
+  </main>
+  <script>
+    const [language, theme] = location.hash.slice(1).split("-");
+    document.documentElement.dataset.theme = theme === "dark" ? "dark" : "light";
+    if (language === "ru") {
+      document.documentElement.lang = "ru";
+      document.getElementById("heading").textContent = "Вход в GOG выполнен";
+      document.getElementById("message").textContent = "Теперь эту вкладку можно закрыть и вернуться в GOGDL.";
+    }
+    document.title = document.getElementById("heading").textContent + " · GOGDL";
+  </script>
+</body>
+</html>

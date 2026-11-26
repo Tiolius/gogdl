@@ -62,23 +62,7 @@ footer p{margin:0;overflow-wrap:anywhere}
 .setting{display:grid;grid-template-columns:minmax(140px,1fr) minmax(130px,1fr);gap:8px;align-items:center;padding:4px 3px}
 .setting.check,.setting .folder{display:flex;gap:7px}
 #versionDetails{width:max-content;max-width:100%;margin-bottom:10px}
-.language-flag {
-  width: 21px;
-  height: 14px;
-  border: 1px solid #ffffff40;
-  border-radius: 2px;
-  background:
-    linear-gradient(90deg, transparent 42%, #cf142b 42% 58%, transparent 58%),
-    linear-gradient(transparent 38%, #cf142b 38% 62%, transparent 62%),
-    linear-gradient(90deg, transparent 35%, white 35% 65%, transparent 65%),
-    linear-gradient(transparent 28%, white 28% 72%, transparent 72%),
-    linear-gradient(34deg, transparent 43%, white 43% 57%, transparent 57%),
-    linear-gradient(-34deg, transparent 43%, white 43% 57%, transparent 57%) #012169;
-}
-:root[lang=ru] .language-flag {
-  border-color: #8a8d9666;
-  background: linear-gradient(white 0 33.33%, #0039a6 33.33% 66.67%, #d52b1e 66.67%);
-}
+#language{min-width:42px;font-size:13px;font-weight:600}
 #accountCredentialLabel{display:block;margin-top:14px;margin-bottom:4px}
 .account-credential{max-width:620px}
 .account-credential input{flex:1}

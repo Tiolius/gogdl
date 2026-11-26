@@ -452,7 +452,6 @@ class Backend:
                 self.login_state = None
                 self.login_cancel = None
                 if code:
-                    self.messages.append(("focusAfterLogin", None))
                     self.exchange_code(code)
                 else:
                     self.authenticating = False
@@ -461,6 +460,8 @@ class Backend:
                 self.authenticating = False
                 self.status = self.login_status = "Вход в GOG выполнен" if value else "Не удалось получить токен GOG"
                 self.logs.append(self.status)
+                if value:
+                    self.messages.append(("showSignInComplete", None))
             elif kind == "exit":
                 success = value == 0 and not self.stopped
                 self.status = "Остановлено" if self.stopped else f"Процесс завершён · код {value}"

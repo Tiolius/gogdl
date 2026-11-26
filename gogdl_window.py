@@ -317,10 +317,12 @@ def run():
                     pending_update = data
                     form.Close()
                     return
-                if kind == "focusAfterLogin":
-                    if form.WindowState == FormWindowState.Minimized:
-                        form.WindowState = FormWindowState.Normal
-                    form.Activate()
+                if kind == "showSignInComplete":
+                    try:
+                        page = PROJECT / "assets" / "sign-in-complete.html"
+                        open_login_browser(f"{page.as_uri()}#{language}-{backend.settings['theme']}")
+                    except OSError:
+                        pass  # The status in GOGDL still confirms that the token was saved.
                 else:
                     push(kind, data)
             backend.messages.clear()
