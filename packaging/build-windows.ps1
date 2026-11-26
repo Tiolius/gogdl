@@ -38,7 +38,12 @@ try {
     foreach ($name in @('assets', 'packaging', 'gogdl_backend.py', 'gogdl_settings.py', 'gogdl_updater.py', 'gogdl_window.py', 'gogrepoc.py', 'LICENSE-gogrepoc.txt', 'README.md', 'requirements.txt', 'Setup-GOGDL.cmd', 'Start-GOGDL.cmd')) {
         Copy-Item -LiteralPath (Join-Path $root $name) -Destination $app -Recurse
     }
-    Add-Type -Path (Join-Path $PSScriptRoot 'launcher.cs') -ReferencedAssemblies System.Windows.Forms.dll -OutputAssembly (Join-Path $app 'GOGDL.exe') -OutputType WindowsApplication
+    $framework = [Runtime.InteropServices.RuntimeEnvironment]::GetRuntimeDirectory()
+    $compiler = Join-Path $framework 'csc.exe'
+    $launcher = Join-Path $app 'GOGDL.exe'
+    $icon = Join-Path $app 'assets/gogdl.ico'
+    Invoke-Checked $compiler @('/nologo', '/target:winexe', '/reference:System.Windows.Forms.dll',
+        "/out:$launcher", "/win32icon:$icon", (Join-Path $PSScriptRoot 'launcher.cs'))
 
     Push-Location $app
     try {
@@ -65,7 +70,7 @@ try {
         }
         $archive = [IO.Compression.ZipFile]::OpenRead($temporaryZip)
         try {
-            foreach ($entry in @('GOGDL/GOGDL.exe', 'GOGDL/.gogdl-runtime/pythonw.exe', 'GOGDL/assets/index.html', 'GOGDL/gogrepoc.py')) {
+            foreach ($entry in @('GOGDL/GOGDL.exe', 'GOGDL/.gogdl-runtime/pythonw.exe', 'GOGDL/assets/index.html', 'GOGDL/assets/gogdl.ico', 'GOGDL/gogrepoc.py')) {
                 if (-not $archive.GetEntry($entry)) { throw "Missing archive entry: $entry" }
             }
         } finally {

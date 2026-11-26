@@ -25,7 +25,7 @@ def application_file(name):
     parts = name.split("/")
     return (name in ROOT_FILES or
             len(parts) == 2 and parts[0] == "assets" and
-            Path(name).suffix in {".css", ".js", ".html", ".ttf", ".txt", ".json"} or
+            Path(name).suffix in {".css", ".js", ".html", ".ico", ".ttf", ".txt", ".json"} or
             len(parts) == 3 and parts[:2] == ["assets", "material"] and name.endswith(".svg"))
 
 

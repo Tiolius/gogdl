@@ -23,7 +23,7 @@ from urllib.parse import parse_qs, urlencode, urlsplit
 from gogdl_updater import download_update
 from gogdl_settings import DOWNLOAD_FIELDS, LOG_FIELDS, UPDATE_FIELDS, cli_options, language_codes, load_settings, save_settings, validate_settings
 
-APP_VERSION = "0.3.1"
+APP_VERSION = "0.3.2"
 APP_AUTHOR = "Evered"
 APP_VERSION_DATE = "2026-11-27"
 PROJECT = Path(__file__).resolve().parent
