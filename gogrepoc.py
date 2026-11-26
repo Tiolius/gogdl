@@ -22,6 +22,7 @@ import sys
 import threading
 import logging
 import html5lib
+import ast
 import pprint
 import time
 import zipfile
@@ -341,7 +342,7 @@ def renew_token(session,retries=HTTP_RETRY_COUNT,delay=None):
 
         time_now = time.time()
         try:
-            if time_now + 300 > session.token['expiry']:
+            if session.token.get('refresh_token') and time_now + 300 > session.token.get('expiry', 0):
                 info('refreshing token')
                 try:
                     token_response = session.get(GOG_TOKEN_URL,params={'client_id':GOG_CLIENT_ID ,'client_secret':GOG_SECRET, 'grant_type': 'refresh_token','refresh_token': session.token['refresh_token']})   
@@ -2018,11 +2019,16 @@ def load_token(filepath=TOKEN_FILENAME):
     info('loading token...')
     try:
         with codecs.open(filepath, 'r' + universalLineEnd, 'utf-8') as r:
-            ad = r.read().replace('{', 'AttrDict(**{').replace('}', '})')
-        return eval(ad)
-    except IOError:
+            contents = r.read()
+        try:
+            token = json.loads(contents)
+        except ValueError:
+            token = ast.literal_eval(contents)
+        return AttrDict(**token) if isinstance(token, dict) else {}
+    except (OSError, SyntaxError, ValueError, TypeError, RecursionError):
         return {}
-        
+
+
 def input_timeout(*ignore):
     raise TimeoutError
 

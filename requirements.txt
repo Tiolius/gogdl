@@ -2,4 +2,3 @@ html5lib
 requests
 psutil
 pywebview==6.2.1
-playwright==1.62.0

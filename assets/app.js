@@ -39,6 +39,10 @@ const russian = {
     "Updates: ": "Обновлений: ", ". Select the games to download.": ". Отметьте игры для загрузки.",
     "No updates in the queue": "В очереди нет обновлений",
     "The previous update is incompatible. Discard it and continue?": "Предыдущее обновление несовместимо. Сбросить его и продолжить?",
+    "GOG access token": "Токен доступа GOG",
+    "Paste an access token or token JSON": "Вставьте токен доступа или JSON с токеном",
+    "Save token": "Сохранить токен", "Finish sign-in": "Завершить вход",
+    "Address after sign-in": "Адрес страницы после входа",
     "Sign in with browser": "Войти через браузер", "Cancel sign-in": "Отменить вход",
     "Remove the password saved by an older version": "Удалить пароль, сохранённый в прежней версии",
     "Browse…": "Обзор…", "Stop the current operation?": "Остановить текущую операцию?",
@@ -69,19 +73,19 @@ const english = {
     "Пропускать установщики Galaxy": "Skip Galaxy installers", "Пропускать общие установщики": "Skip shared installers",
     "Не резервировать место под файлы заранее": "Skip file preallocation",
     "Не записывать вывод в gogrepo.log": "Disable writing to gogrepo.log", "Показывать отладочные сообщения": "Show debug messages",
-    "Для входа запустите Setup-GOGDL.cmd": "Run Setup-GOGDL.cmd to enable sign-in",
-    "Вход отменён": "Sign-in canceled", "Окно входа закрыто": "Sign-in window closed",
-    "Не удалось открыть Edge или Chrome. Проверьте, установлен ли один из браузеров.": "Could not start Edge or Chrome. Check that one of the browsers is installed.",
-    "Не удалось открыть страницу входа GOG": "Could not open the GOG sign-in page",
-    "Не удалось завершить вход в браузере": "Could not complete browser sign-in",
-    "Время ожидания входа истекло": "Sign-in timed out", "Готово к запуску": "Ready",
+    "Вход отменён": "Sign-in canceled", "Готово к запуску": "Ready",
+    "Не удалось открыть браузер": "Could not open a browser",
+    "Войдите в GOG и вставьте ссылку после входа": "Sign in to GOG, then paste the full address of the resulting page",
+    "Вставьте полный адрес страницы после входа из GOGDL": "Paste the full address from the sign-in started in GOGDL",
+    "Введите токен доступа GOG или JSON с токеном.": "Enter a GOG access token or token JSON.",
+    "Не удалось сохранить токен GOG": "Could not save the GOG token",
+    "Токен GOG сохранён": "GOG token saved",
     "Чтение каталога…": "Reading catalog…", "Сначала обновите каталог": "Refresh the catalog first",
     "Не удалось прочитать каталог": "Could not read the catalog", "недоступно": "unavailable",
     "Проверка каталога…": "Refreshing catalog…", "Загрузка…": "Downloading…",
     "Укажите полный путь к папке загрузки.": "Enter the full path to the download folder.",
     "Выберите существующую папку загрузки в настройках.": "Choose an existing download folder in Settings.",
-    "Войдите в GOG в открывшемся браузере": "Sign in to GOG in the browser window",
-    "Закрываем окно входа…": "Closing the sign-in window…", "Получение токена GOG…": "Obtaining GOG token…",
+    "Получение токена GOG…": "Obtaining GOG token…",
     "Вход в GOG выполнен": "Signed in to GOG", "Не удалось получить токен GOG": "Could not obtain GOG token",
     "Остановлено": "Stopped", "Проверяем обновление GOGDL…": "Checking for a GOGDL update…",
     "Перезапускаем GOGDL…": "Restarting GOGDL…", "Установлена актуальная версия GOGDL": "GOGDL is up to date",
@@ -165,6 +169,19 @@ function refreshAccount() {
     cancel.hidden = !state?.awaitingLogin;
     if (cancel.hidden)
         cancel.disabled = false;
+    const credential = get("accountCredential");
+    const callback = !!state?.awaitingLogin;
+    const mode = callback ? "callback" : "token";
+    if (credential.dataset.mode !== mode) {
+        credential.dataset.mode = mode;
+        credential.value = "";
+    }
+    get("accountCredentialLabel").textContent = tr(callback ? "Address after sign-in" : "GOG access token");
+    credential.placeholder = callback ? "" : state?.signedIn ? "••••••••" : tr("Paste an access token or token JSON");
+    credential.disabled = !!state?.busy && !callback;
+    const save = button("saveAccountCredential");
+    save.textContent = tr(callback ? "Finish sign-in" : "Save token");
+    save.disabled = credential.disabled || !credential.value.trim();
 }
 function renderState(next) {
     const old = state;
@@ -290,7 +307,30 @@ function renderSettings() {
             cancel.disabled = true;
             send("cancelLogin");
         };
-        form.append(account, login, cancel);
+        const credentialLabel = document.createElement("label");
+        credentialLabel.id = "accountCredentialLabel";
+        credentialLabel.htmlFor = "accountCredential";
+        const credential = document.createElement("input");
+        credential.id = "accountCredential";
+        credential.type = "password";
+        credential.autocomplete = "new-password";
+        const saveCredential = document.createElement("button");
+        saveCredential.id = "saveAccountCredential";
+        saveCredential.textContent = tr("Save token");
+        saveCredential.onclick = () => {
+            send(state?.awaitingLogin ? "loginCallback" : "saveToken", credential.value.trim());
+            credential.value = "";
+            saveCredential.disabled = true;
+        };
+        credential.oninput = refreshAccount;
+        credential.onkeydown = event => {
+            if (event.key === "Enter" && !saveCredential.disabled)
+                saveCredential.click();
+        };
+        const field = document.createElement("div");
+        field.className = "actions account-credential";
+        field.append(credential, saveCredential);
+        form.append(account, login, cancel, credentialLabel, field);
         refreshAccount();
         if (settings.savedLogin) {
             const forget = document.createElement("button");

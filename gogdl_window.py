@@ -5,12 +5,50 @@ import json
 import os
 import queue
 import re
+import subprocess
 import sys
+from pathlib import Path
 
 from gogdl_backend import Backend, PROJECT
 from gogdl_updater import install_and_restart, restart
 
 HOME = "https://gogdl.local/index.html"
+
+
+def installed_chrome():
+    import winreg
+
+    app_path = r"Software\Microsoft\Windows\CurrentVersion\App Paths\chrome.exe"
+    for hive in (winreg.HKEY_CURRENT_USER, winreg.HKEY_LOCAL_MACHINE):
+        for view in (winreg.KEY_WOW64_64KEY, winreg.KEY_WOW64_32KEY):
+            try:
+                with winreg.OpenKey(hive, app_path, 0, winreg.KEY_READ | view) as key:
+                    value, _ = winreg.QueryValueEx(key, None)
+            except OSError:
+                continue
+            if isinstance(value, str):
+                path = Path(os.path.expandvars(value.strip('"')))
+                if path.is_absolute() and path.is_file():
+                    return path
+
+    for folder in ("LOCALAPPDATA", "ProgramFiles", "ProgramFiles(x86)", "ProgramW6432"):
+        if root := os.environ.get(folder):
+            path = Path(root) / "Google" / "Chrome" / "Application" / "chrome.exe"
+            if path.is_absolute() and path.is_file():
+                return path
+    return None
+
+
+def open_login_browser(url):
+    chrome = installed_chrome()
+    if chrome:
+        try:
+            subprocess.Popen([str(chrome), url])
+        except OSError:
+            pass
+        else:
+            return
+    os.startfile(url)
 
 
 def run():
@@ -134,7 +172,11 @@ def run():
                 elif action == "openFolder":
                     os.startfile(PROJECT)
                 elif action == "login":
-                    backend.begin_login()
+                    backend.begin_login(open_login_browser)
+                elif action == "loginCallback" and isinstance(value, str):
+                    backend.complete_login(value)
+                elif action == "saveToken" and isinstance(value, str):
+                    backend.save_manual_token(value)
                 elif action == "cancelLogin":
                     backend.cancel_login()
             except (OSError, ValueError, TypeError) as error:
@@ -174,12 +216,7 @@ def run():
                     pending_update = data
                     form.Close()
                     return
-                if kind == "focusAfterLogin":
-                    if form.WindowState == FormWindowState.Minimized:
-                        form.WindowState = FormWindowState.Normal
-                    form.Activate()
-                else:
-                    push(kind, data)
+                push(kind, data)
             backend.messages.clear()
             if backend.dirty:
                 push("state", backend.snapshot())
@@ -194,7 +231,7 @@ def run():
                 MessageBox.Show(label("Please wait for the update check.", "Подождите завершения проверки обновления."), "GOGDL")
                 args.Cancel = True
                 return
-            if backend.authenticating and not backend.browser_cancel:
+            if backend.authenticating and not backend.login_state:
                 MessageBox.Show(label("Please wait for GOG sign-in to finish.", "Подождите завершения входа в GOG."), "GOGDL")
                 args.Cancel = True
                 return
