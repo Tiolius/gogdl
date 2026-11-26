@@ -4,6 +4,9 @@ on:
   workflow_run:
     workflows: [Windows portable build]
     types: [completed]
+  pull_request_target:
+    branches: [main]
+    types: [closed]
 
 permissions:
   actions: read
@@ -13,16 +16,22 @@ permissions:
 jobs:
   publish:
     if: >-
-      github.event.workflow_run.conclusion == 'success' &&
-      github.event.workflow_run.event == 'pull_request' &&
-      github.event.workflow_run.head_repository.full_name == github.repository
+      (github.event_name == 'workflow_run' &&
+       github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.event == 'pull_request' &&
+       github.event.workflow_run.head_repository.full_name == github.repository) ||
+      (github.event_name == 'pull_request_target' &&
+       github.event.pull_request.merged &&
+       github.event.pull_request.head.ref == 'work' &&
+       github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ubuntu-latest
     timeout-minutes: 5
     concurrency:
-      group: windows-preview-${{ github.event.workflow_run.head_sha }}
+      group: windows-preview-${{ github.event.workflow_run.head_sha || github.event.pull_request.number }}
       cancel-in-progress: false
     steps:
       - name: Verify the source of the PR build
+        if: github.event_name == 'workflow_run'
         id: preview
         env:
           GH_TOKEN: ${{ github.token }}
@@ -64,3 +73,35 @@ jobs:
               --title "GOGDL PR #$PR_NUMBER (${HEAD_SHA:0:12})" --prerelease --latest=false \
               --notes "Portable Windows x64 preview for #$PR_NUMBER. Extract the ZIP and run GOGDL.exe."
           fi
+      - name: Delete previews for the merged work PR
+        if: >-
+          !cancelled() &&
+          (github.event_name == 'pull_request_target' || steps.preview.outputs.number != '')
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number || steps.preview.outputs.number }}
+        run: |
+          set -euo pipefail
+          [[ "$PR_NUMBER" =~ ^[0-9]+$ ]]
+          # Also check after publishing in case the PR merged during the upload.
+          merged=$(gh api "repos/$GH_REPO/pulls/$PR_NUMBER" |
+            jq -r --arg repo "$GH_REPO" '
+              .merged and .base.ref == "main" and
+              .head.ref == "work" and .head.repo.full_name == $repo
+            ')
+          [[ "$merged" == true ]] || exit 0
+          release_ids=$(gh api --paginate "repos/$GH_REPO/releases?per_page=100" |
+            jq -r --arg pattern "^pr-$PR_NUMBER-[0-9a-f]{12}$" '
+              .[] | select(.prerelease and (.tag_name | test($pattern))) | .id
+            ')
+          while IFS= read -r release_id; do
+            [[ -n "$release_id" ]] || continue
+            if ! result=$(gh api --method DELETE "repos/$GH_REPO/releases/$release_id" 2>&1); then
+              # The merge and publish runs may both try to delete the same release.
+              if [[ "$result" != *"(HTTP 404)"* ]]; then
+                printf '%s\n' "$result" >&2
+                exit 1
+              fi
+            fi
+          done <<< "$release_ids"
