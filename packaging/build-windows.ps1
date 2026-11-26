@@ -33,7 +33,7 @@ try {
     $importPaths = @(Get-Content -LiteralPath $pythonPathConfig.FullName) + '..'
     Set-Content -LiteralPath $pythonPathConfig.FullName -Value $importPaths -Encoding ASCII
 
-    Invoke-Checked python.exe @('-m', 'pip', 'install', '--only-binary=:all:', '--target', $runtime, '-r', (Join-Path $root 'requirements.txt'))
+    Invoke-Checked python.exe @('-m', 'pip', 'install', '--target', $runtime, '-r', (Join-Path $root 'requirements.txt'))
 
     foreach ($name in @('assets', 'packaging', 'gogdl_backend.py', 'gogdl_settings.py', 'gogdl_updater.py', 'gogdl_window.py', 'gogrepoc.py', 'LICENSE-gogrepoc.txt', 'README.md', 'requirements.txt', 'Setup-GOGDL.cmd', 'Start-GOGDL.cmd')) {
         Copy-Item -LiteralPath (Join-Path $root $name) -Destination $app -Recurse
