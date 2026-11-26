@@ -341,9 +341,12 @@ class Backend:
                             self.events.put(("browserCallback", (state, code, "")))
                             return
                     cancel.wait(0.5)
-            except Exception:
-                # Do not expose URLs or authorization codes from browser errors.
+            except Exception as exc:
+                # Never include exception text unless it is a known diagnostic code.
                 error = "Не удалось отследить завершение входа в браузере"
+                code = str(exc) if type(exc) is RuntimeError else ""
+                if code in {"UIA-20", "UIA-21", "UIA-22", "UIA-23"}:
+                    error += " · " + code
             else:
                 error = "Время ожидания входа истекло"
             if not cancel.is_set():

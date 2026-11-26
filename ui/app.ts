@@ -109,6 +109,7 @@ const english: Record<string, string> = {
   "Некорректный формат настроек": "Invalid settings format",
 };
 const englishPrefixes: [string, string][] = [
+  ["Не удалось отследить завершение входа в браузере · ", "Could not detect completed sign-in in the browser · "],
   ["Игр в каталоге: ", "Games in catalog: "], ["Ошибка запуска: ", "Launch error: "],
   ["Процесс завершён · код ", "Process finished · exit code "],
   ["Не удалось прочитать настройки: ", "Could not read settings: "],

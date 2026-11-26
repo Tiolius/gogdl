@@ -1,5 +1,6 @@
 """Windows host for the local TypeScript UI with sign-in in an external browser."""
 
+import base64
 import ctypes
 import json
 import os
@@ -80,41 +81,77 @@ def browser_callback_windows():
     return windows
 
 
+# Windows PowerShell loads the Windows UI Automation assemblies in .NET Framework.
+# Read only browser chrome. Documents can contain passwords or other form inputs.
+READ_BROWSER_ADDRESS = r"""
+$ErrorActionPreference = 'Stop'
+try {
+    Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes
+    $walker = [System.Windows.Automation.TreeWalker]::ControlViewWalker
+} catch {
+    exit 21
+}
+
+foreach ($window in $windows) {
+    try {
+        $root = [System.Windows.Automation.AutomationElement]::FromHandle([IntPtr][long]$window)
+        if ($null -eq $root) { continue }
+        $stack = [System.Collections.Stack]::new()
+        $stack.Push($walker.GetFirstChild($root))
+        $visited = 0
+        while ($stack.Count -and $visited -lt 256) {
+            $element = $stack.Pop()
+            if ($null -eq $element) { continue }
+            $visited++
+            $stack.Push($walker.GetNextSibling($element))
+            $control = $element.Current.ControlType
+            if ($control -eq [System.Windows.Automation.ControlType]::Document) { continue }
+            if ($control -eq [System.Windows.Automation.ControlType]::Edit) {
+                $pattern = $null
+                if ($element.TryGetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern, [ref]$pattern)) {
+                    $address = $pattern.Current.Value
+                    if ($address -cmatch '^(?:https://)?embed[.]gog[.]com/on_login_success[?]') {
+                        [Console]::WriteLine($address)
+                    }
+                }
+            }
+            $stack.Push($walker.GetFirstChild($element))
+        }
+    } catch [System.Windows.Automation.ElementNotAvailableException] {
+        continue
+    } catch [System.ArgumentException] {
+        continue
+    } catch {
+        exit 22
+    }
+}
+"""
+
+
 def browser_callback_urls():
-    import clr
-
-    clr.AddReference("UIAutomationTypes")
-    clr.AddReference("UIAutomationClient")
-    from System import IntPtr, SystemException
-    from System.Windows.Automation import AutomationElement, ControlType, TreeWalker, ValuePattern
-
-    walker = TreeWalker.ControlViewWalker
-    for handle in browser_callback_windows():
-        try:
-            root = AutomationElement.FromHandle(IntPtr(handle))
-            if root is None:
-                continue
-            pending = [walker.GetFirstChild(root)]
-            visited = 0
-            while pending and visited < 256:
-                element = pending.pop()
-                if element is None:
-                    continue
-                visited += 1
-                pending.append(walker.GetNextSibling(element))
-                control = element.Current.ControlType
-                if control == ControlType.Document:
-                    continue
-                if control == ControlType.Edit:
-                    available, pattern = element.TryGetCurrentPattern(ValuePattern.Pattern)
-                    if available:
-                        address = pattern.Current.Value
-                        if address and address.startswith(("https://embed.gog.com/", "embed.gog.com/")):
-                            yield address if address.startswith("https://") else "https://" + address
-                pending.append(walker.GetFirstChild(element))
-        except (SystemException, RuntimeError):
-            # A browser window can close or replace its controls during navigation.
-            continue
+    windows = browser_callback_windows()
+    if not windows:
+        return
+    script = "$windows = @(" + ",".join(str(int(handle)) for handle in windows) + ")\n" + READ_BROWSER_ADDRESS
+    command = base64.b64encode(script.encode("utf-16-le")).decode("ascii")
+    powershell = Path(os.environ.get("SystemRoot", r"C:\Windows")) / "System32" / "WindowsPowerShell" / "v1.0" / "powershell.exe"
+    try:
+        result = subprocess.run(
+            [str(powershell), "-NoLogo", "-NoProfile", "-NonInteractive", "-EncodedCommand", command],
+            stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+            creationflags=subprocess.CREATE_NO_WINDOW, timeout=8,
+        )
+    except subprocess.TimeoutExpired:
+        return
+    except OSError:
+        raise RuntimeError("UIA-20") from None
+    if result.returncode:
+        raise RuntimeError({21: "UIA-21", 22: "UIA-22"}.get(result.returncode, "UIA-23"))
+    for address in result.stdout.decode("ascii", errors="ignore").splitlines():
+        if address.startswith("https://embed.gog.com/on_login_success?"):
+            yield address
+        elif address.startswith("embed.gog.com/on_login_success?"):
+            yield "https://" + address
 
 
 def run():
