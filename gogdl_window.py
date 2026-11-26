@@ -209,6 +209,25 @@ def show_sign_in_complete(state, language, theme):
         pass  # GOGDL already confirms that the token was saved.
 
 
+def set_title_bar_theme(handle, dark):
+    try:
+        set_attribute = ctypes.WinDLL("dwmapi").DwmSetWindowAttribute
+    except (OSError, AttributeError):
+        return
+    set_attribute.argtypes = (wintypes.HWND, wintypes.DWORD, ctypes.c_void_p, wintypes.DWORD)
+    set_attribute.restype = ctypes.c_long
+
+    dark_mode = wintypes.BOOL(dark)
+    if set_attribute(handle, 20, ctypes.byref(dark_mode), ctypes.sizeof(dark_mode)) != 0:
+        # Earlier Windows 10 builds use attribute 19.
+        set_attribute(handle, 19, ctypes.byref(dark_mode), ctypes.sizeof(dark_mode))
+
+    # Windows 11 also accepts explicit caption and text colors.
+    for attribute, color in ((35, 0x131111), (36, 0xEEECEC)):
+        value = ctypes.c_uint32(color if dark else 0xFFFFFFFF)
+        set_attribute(handle, attribute, ctypes.byref(value), ctypes.sizeof(value))
+
+
 def run():
     runtime = PROJECT / ".gogdl-runtime"
     sys.path.insert(0, str(runtime))
@@ -223,7 +242,7 @@ def run():
 
     from Microsoft.Web.WebView2.Core import CoreWebView2HostResourceAccessKind
     from Microsoft.Web.WebView2.WinForms import CoreWebView2CreationProperties, WebView2
-    from System.Drawing import Color, Point, Size
+    from System.Drawing import Color, Icon, Point, Size
     from System.Threading import ApartmentState, Thread, ThreadStart
     from System.Windows.Forms import (
         Application, DialogResult, DockStyle, FolderBrowserDialog, Form,
@@ -250,6 +269,15 @@ def run():
             return russian if language == "ru" else english
         form = Form()
         form.Text = "GOGDL"
+        icon_path = PROJECT / "assets" / "gogdl.ico"
+        icon = Icon(str(icon_path)) if icon_path.is_file() else None
+        if icon is not None:
+            form.Icon = icon
+
+        def apply_title_bar_theme(_sender=None, _event=None):
+            set_title_bar_theme(form.Handle.ToInt64(), backend.settings["theme"] == "dark")
+
+        form.HandleCreated += apply_title_bar_theme
         form.MinimumSize = Size(600, 475)
         form.Size = Size(920, 690)
         form.StartPosition = FormStartPosition.CenterScreen
@@ -313,6 +341,7 @@ def run():
                     backend.update_application()
                 elif action == "theme":
                     backend.save(theme="light" if backend.settings["theme"] == "dark" else "dark")
+                    apply_title_bar_theme()
                     view.DefaultBackgroundColor = (Color.FromArgb(27, 26, 34)
                                                    if backend.settings["theme"] == "dark" else Color.FromArgb(253, 253, 253))
                     push("settings", backend.settings_info())
@@ -425,6 +454,8 @@ def run():
         finally:
             timer.Dispose()
             form.Dispose()
+            if icon is not None:
+                icon.Dispose()
 
     thread = Thread(ThreadStart(window_loop))
     thread.SetApartmentState(ApartmentState.STA)
