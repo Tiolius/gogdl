@@ -51,10 +51,18 @@ try {
 
     $zipParent = Split-Path $zip -Parent
     New-Item -ItemType Directory -Path $zipParent -Force | Out-Null
-    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    Add-Type -AssemblyName System.IO.Compression, System.IO.Compression.FileSystem
     $temporaryZip = Join-Path $zipParent ("gogdl-" + [Guid]::NewGuid() + ".zip")
     try {
-        [IO.Compression.ZipFile]::CreateFromDirectory($app, $temporaryZip, [IO.Compression.CompressionLevel]::Optimal, $true)
+        $archive = [IO.Compression.ZipFile]::Open($temporaryZip, [IO.Compression.ZipArchiveMode]::Create)
+        try {
+            foreach ($file in Get-ChildItem -LiteralPath $app -Recurse -File -Force) {
+                $entry = 'GOGDL/' + $file.FullName.Substring($app.Length + 1).Replace('\', '/')
+                [IO.Compression.ZipFileExtensions]::CreateEntryFromFile($archive, $file.FullName, $entry, [IO.Compression.CompressionLevel]::Optimal) | Out-Null
+            }
+        } finally {
+            $archive.Dispose()
+        }
         $archive = [IO.Compression.ZipFile]::OpenRead($temporaryZip)
         try {
             foreach ($entry in @('GOGDL/GOGDL.exe', 'GOGDL/.gogdl-runtime/pythonw.exe', 'GOGDL/assets/index.html', 'GOGDL/gogrepoc.py')) {
