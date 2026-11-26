@@ -1,0 +1,4 @@
+html5lib
+requests
+psutil
+pywebview==6.2.1

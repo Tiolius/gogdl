@@ -1,0 +1,3 @@
+python gogrepoc.py login
+python gogrepoc.py update -os windows -lang en ru -standard
+python gogrepoc.py download -covers -backgrounds -ids GAME_ID
