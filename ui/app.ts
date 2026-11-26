@@ -37,6 +37,7 @@ let state: State | undefined;
 
 const russian: Record<string, string> = {
   "Save your settings first.": "Сначала сохраните настройки.",
+  "Cancel": "Отмена", "Continue": "Продолжить", "OK": "ОК",
   "GOG game catalog": "Каталог игр GOG",
   "Settings": "Настройки", "Updates": "Обновления", "Refresh catalog": "Обновить каталог",
   "Refresh the catalog first": "Сначала обновите каталог", "Selected size: 0 B": "Объём выбранных: 0 Б",
@@ -127,8 +128,12 @@ const backendUnits = ["Б", "КиБ", "МиБ", "ГиБ", "ТиБ"];
 const locale = () => settings?.language === "ru" ? "ru-RU" : "en-US";
 const tr = (label: string) => settings?.language === "ru" ? russian[label] ?? label : label;
 function translate(value: string): string {
-  const disk = /^([\d.]+) (Б|КиБ|МиБ|ГиБ|ТиБ)$/.exec(value);
-  if (disk) return disk[1] + " " + sizeUnits[settings?.language ?? "en"][backendUnits.indexOf(disk[2])];
+  const disk = /^(\d+(?:[.,]\d+)?) (Б|КиБ|МиБ|ГиБ|Mb|Gb|ТиБ)$/.exec(value);
+  if (disk) {
+    const units = sizeUnits[settings?.language ?? "en"];
+    const unit = units.includes(disk[2]) ? disk[2] : units[backendUnits.indexOf(disk[2])];
+    return Number(disk[1].replace(",", ".")).toLocaleString(locale(), {maximumFractionDigits: 2}) + " " + unit;
+  }
   if (settings?.language === "ru") return value.replace("Лимит на игру, МиБ", "Лимит на игру, Mb");
   if (Object.hasOwn(english, value)) return english[value];
   for (const [prefix, label] of englishPrefixes) {
@@ -140,6 +145,28 @@ function translate(value: string): string {
     return verb + ' "' + translate(fieldError[2]) + '".';
   }
   return value;
+}
+
+const appDialog = get<HTMLDialogElement>("appDialog");
+let dialogQueue = Promise.resolve();
+
+function showDialog(message: string, action?: string): Promise<boolean> {
+  const result = dialogQueue.then(() => new Promise<boolean>(resolve => {
+    const cancel = button("dialogCancel");
+    const accept = button("dialogAccept");
+    get("appDialogMessage").textContent = message;
+    cancel.textContent = tr("Cancel");
+    cancel.hidden = !action;
+    accept.textContent = tr(action ?? "OK");
+    cancel.onclick = () => appDialog.close("cancel");
+    accept.onclick = () => appDialog.close("accept");
+    appDialog.returnValue = "";
+    appDialog.onclose = () => resolve(appDialog.returnValue === "accept");
+    appDialog.showModal();
+    (action ? cancel : accept).focus();
+  }));
+  dialogQueue = result.then(() => undefined, () => undefined);
+  return result;
 }
 
 function localizePage() {
@@ -245,7 +272,9 @@ function renderState(next: State) {
   }
   if (next.resume && !resumePrompt) {
     resumePrompt = true;
-    send("resume", confirm(tr("The previous update is incompatible. Discard it and continue?")));
+    void showDialog(tr("The previous update is incompatible. Discard it and continue?"), "Continue").then(confirmed => {
+      if (state?.resume) send("resume", confirmed);
+    });
   } else if (!next.resume) {
     resumePrompt = false;
   }
@@ -343,8 +372,8 @@ function renderSettings() {
     const remove = document.createElement("button");
     remove.id = "removeAccountToken";
     remove.textContent = tr("Remove token");
-    remove.onclick = () => {
-      if (confirm(tr("Remove the saved GOG token from this device?"))) send("removeToken");
+    remove.onclick = async () => {
+      if (await showDialog(tr("Remove the saved GOG token from this device?"), "Remove token")) send("removeToken");
     };
     const actions = document.createElement("div");
     actions.className = "actions";
@@ -415,7 +444,7 @@ document.addEventListener("click", event => {
   if (!(event.target as HTMLElement).closest(".field")) matches.hidden = true;
 });
 document.addEventListener("keydown", event => {
-  if (event.key !== "Escape") return;
+  if (event.key !== "Escape" || appDialog.open) return;
   if (!matches.hidden) { matches.hidden = true; search.focus(); }
   else if (!get("preferences").hidden) closeSettings();
 });
@@ -431,12 +460,12 @@ button("settings").onclick = () => {
   renderSettings();
 };
 button("language").onclick = () => send("language", settings?.language === "ru" ? "en" : "ru");
-button("updateApp").onclick = () => {
+button("updateApp").onclick = async () => {
   if (Object.keys(draft).length) {
-    alert(tr("Save your settings first."));
+    void showDialog(tr("Save your settings first."));
     return;
   }
-  if (confirm(tr("Install the update from GitHub main and restart GOGDL?"))) {
+  if (await showDialog(tr("Install the update from GitHub main and restart GOGDL?"), "Update") && !state?.busy) {
     button("updateApp").disabled = true;
     send("updateApplication");
   }
@@ -445,7 +474,9 @@ button("back").onclick = closeSettings;
 button("save").onclick = () => send("settings", draft);
 button("update").onclick = () => send("update");
 button("openFolder").onclick = () => send("openFolder");
-button("stop").onclick = () => { if (confirm(tr("Stop the current operation?"))) send("stop"); };
+button("stop").onclick = async () => {
+  if (await showDialog(tr("Stop the current operation?"), "Stop")) send("stop");
+};
 button("downloadQueue").onclick = () => send("queue", state?.queue.filter(([id]) => selected.has(id)).map(([id]) => id));
 button("downloadGame").onclick = () => { if (selectedGame) send("download", [selectedGame[0]]); };
 
@@ -484,7 +515,7 @@ bridge.addEventListener("message", event => {
     renderSettings();
   } else if (kind === "error") {
     if (!get("preferences").hidden) renderSettings();
-    alert(translate(String(data)));
+    void showDialog(translate(String(data)));
   }
 });
 send("ready");
