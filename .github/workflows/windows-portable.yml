@@ -17,11 +17,11 @@ jobs:
     outputs:
       version: ${{ steps.version.outputs.number }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: '3.13.12'
           architecture: x64
@@ -36,7 +36,7 @@ jobs:
       - name: Build and smoke-test the portable package
         shell: powershell
         run: .\packaging\build-windows.ps1
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: gogdl-windows-${{ github.run_attempt }}
           path: dist/GOGDL-Windows-x64.zip
@@ -52,7 +52,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v7
         with:
           name: gogdl-windows-${{ github.run_attempt }}
       - name: Publish the Windows release
