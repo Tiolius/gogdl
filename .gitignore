@@ -31,3 +31,10 @@
 !/assets/material/
 /assets/material/*
 !/assets/material/*.svg
+!/.github/
+!/.github/workflows/
+!/.github/workflows/windows-portable.yml
+!/.github/workflows/windows-pr-preview.yml
+!/packaging/
+!/packaging/build-windows.ps1
+!/packaging/launcher.cs

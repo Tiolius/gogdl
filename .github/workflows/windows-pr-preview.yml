@@ -1,0 +1,66 @@
+name: Publish Windows PR preview
+
+on:
+  workflow_run:
+    workflows: [Windows portable build]
+    types: [completed]
+
+permissions:
+  actions: read
+  contents: write
+  pull-requests: read
+
+jobs:
+  publish:
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'pull_request' &&
+      github.event.workflow_run.head_repository.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    concurrency:
+      group: windows-preview-${{ github.event.workflow_run.head_sha }}
+      cancel-in-progress: false
+    steps:
+      - name: Verify the source of the PR build
+        id: preview
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+        run: |
+          set -euo pipefail
+          [[ "$HEAD_SHA" =~ ^[0-9a-f]{40}$ ]]
+          number=$(gh api --method GET "repos/$GH_REPO/pulls" \
+            -f state=open -f base=main -f "head=${GH_REPO%/*}:$HEAD_BRANCH" |
+            jq -r --arg sha "$HEAD_SHA" --arg repo "$GH_REPO" \
+              '[.[] | select(.head.sha == $sha and .head.repo.full_name == $repo)][0].number // empty')
+          if [[ "$number" =~ ^[0-9]+$ ]]; then
+            echo "tag=pr-$number-${HEAD_SHA:0:12}" >> "$GITHUB_OUTPUT"
+            echo "number=$number" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Download the portable build
+        if: steps.preview.outputs.tag != ''
+        uses: actions/download-artifact@v4
+        with:
+          name: gogdl-windows-${{ github.event.workflow_run.run_attempt }}
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ github.token }}
+      - name: Publish the ZIP without executing it
+        if: steps.preview.outputs.tag != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ steps.preview.outputs.tag }}
+          PR_NUMBER: ${{ steps.preview.outputs.number }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" GOGDL-Windows-x64.zip --clobber
+          else
+            gh release create "$TAG" GOGDL-Windows-x64.zip --target "$HEAD_SHA" \
+              --title "GOGDL PR #$PR_NUMBER (${HEAD_SHA:0:12})" --prerelease --latest=false \
+              --notes "Portable Windows x64 preview for #$PR_NUMBER. Extract the ZIP and run GOGDL.exe."
+          fi
