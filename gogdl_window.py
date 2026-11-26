@@ -16,6 +16,8 @@ from gogdl_backend import Backend, PROJECT
 from gogdl_updater import install_and_restart, restart
 
 HOME = "https://gogdl.local/index.html"
+INSTANCE_NAME = r"Local\Tiolius.GOGDL.3C4D3DAB"
+WINDOW_MARKER = "Tiolius.GOGDL.MainWindow.3C4D3DAB"
 
 
 def installed_chrome():
@@ -209,6 +211,80 @@ def show_sign_in_complete(state, language, theme):
         pass  # GOGDL already confirms that the token was saved.
 
 
+def mark_main_window(handle, present):
+    user32 = ctypes.WinDLL("user32")
+    if present:
+        user32.SetPropW.argtypes = (wintypes.HWND, wintypes.LPCWSTR, wintypes.HANDLE)
+        user32.SetPropW(handle, WINDOW_MARKER, 1)
+    else:
+        user32.RemovePropW.argtypes = (wintypes.HWND, wintypes.LPCWSTR)
+        user32.RemovePropW.restype = wintypes.HANDLE
+        user32.RemovePropW(handle, WINDOW_MARKER)
+
+
+def focus_running_window():
+    user32 = ctypes.WinDLL("user32")
+    callback_type = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+    user32.EnumWindows.argtypes = (callback_type, wintypes.LPARAM)
+    user32.GetPropW.argtypes = (wintypes.HWND, wintypes.LPCWSTR)
+    user32.GetPropW.restype = wintypes.HANDLE
+    user32.IsWindowVisible.argtypes = (wintypes.HWND,)
+    user32.IsIconic.argtypes = (wintypes.HWND,)
+    user32.ShowWindowAsync.argtypes = (wintypes.HWND, ctypes.c_int)
+    user32.GetLastActivePopup.argtypes = (wintypes.HWND,)
+    user32.GetLastActivePopup.restype = wintypes.HWND
+    user32.SetForegroundWindow.argtypes = (wintypes.HWND,)
+    user32.FlashWindow.argtypes = (wintypes.HWND, wintypes.BOOL)
+    found = False
+
+    @callback_type
+    def activate(handle, _):
+        nonlocal found
+        if not user32.GetPropW(handle, WINDOW_MARKER) or not user32.IsWindowVisible(handle):
+            return True
+        found = True
+        if user32.IsIconic(handle):
+            user32.ShowWindowAsync(handle, 9)  # SW_RESTORE
+        popup = user32.GetLastActivePopup(handle)
+        target = popup if popup and user32.IsWindowVisible(popup) else handle
+        if not user32.SetForegroundWindow(target):
+            user32.FlashWindow(handle, True)
+        return False
+
+    user32.EnumWindows(activate, 0)
+    return found
+
+
+def run_single_instance():
+    kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel.CreateMutexW.argtypes = (ctypes.c_void_p, wintypes.BOOL, wintypes.LPCWSTR)
+    kernel.CreateMutexW.restype = wintypes.HANDLE
+    kernel.WaitForSingleObject.argtypes = (wintypes.HANDLE, wintypes.DWORD)
+    kernel.WaitForSingleObject.restype = wintypes.DWORD
+    kernel.ReleaseMutex.argtypes = (wintypes.HANDLE,)
+    kernel.CloseHandle.argtypes = (wintypes.HANDLE,)
+    mutex = kernel.CreateMutexW(None, False, INSTANCE_NAME)
+    if not mutex:
+        raise ctypes.WinError(ctypes.get_last_error())
+
+    try:
+        # The first process may still be opening its window or closing it for an update.
+        for _ in range(100):
+            result = kernel.WaitForSingleObject(mutex, 100)
+            if result in (0, 0x80):  # WAIT_OBJECT_0 or WAIT_ABANDONED: this thread owns the mutex.
+                try:
+                    run()
+                finally:
+                    kernel.ReleaseMutex(mutex)
+                return
+            if result != 258:  # WAIT_TIMEOUT
+                raise ctypes.WinError(ctypes.get_last_error())
+            if focus_running_window():
+                return
+    finally:
+        kernel.CloseHandle(mutex)
+
+
 def set_title_bar_theme(handle, dark):
     try:
         set_attribute = ctypes.WinDLL("dwmapi").DwmSetWindowAttribute
@@ -277,7 +353,22 @@ def run():
         def apply_title_bar_theme(_sender=None, _event=None):
             set_title_bar_theme(form.Handle.ToInt64(), backend.settings["theme"] == "dark")
 
-        form.HandleCreated += apply_title_bar_theme
+        main_handle = None
+
+        def window_created(sender, event):
+            nonlocal main_handle
+            main_handle = form.Handle.ToInt64()
+            mark_main_window(main_handle, True)
+            apply_title_bar_theme(sender, event)
+
+        def window_destroyed(_sender, _event):
+            nonlocal main_handle
+            if main_handle is not None:
+                mark_main_window(main_handle, False)
+                main_handle = None
+
+        form.HandleCreated += window_created
+        form.HandleDestroyed += window_destroyed
         form.MinimumSize = Size(600, 475)
         form.Size = Size(920, 690)
         form.StartPosition = FormStartPosition.CenterScreen
@@ -474,7 +565,7 @@ def run():
 
 if __name__ == "__main__":
     try:
-        run()
+        run_single_instance()
     except Exception as error:
         ctypes.windll.user32.MessageBoxW(
             None, f"Could not start GOGDL.\n\n{error}", "GOGDL", 0x10,

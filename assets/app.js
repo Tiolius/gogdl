@@ -29,7 +29,7 @@ const russian = {
     "Refresh the catalog first": "Сначала обновите каталог", "Selected size: 0 B": "Объём выбранных: 0 Б",
     "Download selected": "Скачать выбранные", "Download one game": "Одна игра из каталога",
     "Download game": "Скачать игру", "Reading catalog…": "Чтение каталога…", "Activity log": "Журнал выполнения",
-    "Ready": "Готово к запуску", "Open project folder": "Открыть папку проекта", "Stop": "Остановить",
+    "Open project folder": "Открыть папку проекта", "Stop": "Остановить",
     "Back": "Назад", "Settings sections": "Разделы настроек", "Switch to English": "Переключить на английский",
     "GOGDL version": "Версия GOGDL", "Author": "Автор", "Version date": "Дата версии", "Save": "Сохранить",
     "Update": "Обновить", "Updates list": "Список обновлений",
@@ -218,7 +218,6 @@ function renderState(next) {
     button("update").disabled = next.busy;
     button("settings").disabled = next.busy && !next.authenticating;
     button("stop").disabled = !next.busy || next.authenticating || next.updatingApp;
-    get("status").textContent = translate(next.status);
     button("updateApp").disabled = next.busy;
     get("appUpdateStatus").textContent = translate(next.appUpdateStatus);
     get("catalogStatus").textContent = translate(next.catalogStatus);
