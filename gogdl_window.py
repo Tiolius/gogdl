@@ -1,5 +1,6 @@
 """Windows host for the local TypeScript UI and the real GOG sign-in page."""
 
+import ctypes
 import json
 import os
 import queue
@@ -410,3 +411,12 @@ def run():
     thread.Join()
     if not failures.empty():
         raise failures.get()
+
+
+if __name__ == "__main__":
+    try:
+        run()
+    except Exception as error:
+        ctypes.windll.user32.MessageBoxW(
+            None, f"Не удалось запустить WebView2.\n\n{error}", "GOGDL", 0x10,
+        )

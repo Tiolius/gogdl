@@ -7,7 +7,6 @@
 !/requirements.txt
 !/Setup-GOGDL.cmd
 !/Start-GOGDL.cmd
-!/GOGDL-Web.pyw
 !/gogdl_backend.py
 !/gogdl_settings.py
 !/gogdl_window.py
