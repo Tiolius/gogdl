@@ -406,7 +406,7 @@ class Backend:
         self.status = self.login_status = "Токен GOG удалён"
         self.dirty = True
 
-    def exchange_code(self, code):
+    def exchange_code(self, code, state):
         self.status = self.login_status = "Получение токена GOG…"
         self.dirty = True
 
@@ -419,7 +419,7 @@ class Backend:
             except Exception:
                 # The endpoint URL in an exception can contain the authorization code.
                 success = False
-            self.events.put(("auth", success))
+            self.events.put(("auth", (success, state)))
 
         threading.Thread(target=exchange, daemon=True).start()
 
@@ -462,16 +462,17 @@ class Backend:
                 self.login_state = None
                 self.login_cancel = None
                 if code:
-                    self.exchange_code(code)
+                    self.exchange_code(code, state)
                 else:
                     self.authenticating = False
                     self.status = self.login_status = error
             elif kind == "auth":
+                success, state = value
                 self.authenticating = False
-                self.status = self.login_status = "Вход в GOG выполнен" if value else "Не удалось получить токен GOG"
+                self.status = self.login_status = "Вход в GOG выполнен" if success else "Не удалось получить токен GOG"
                 self.logs.append(self.status)
-                if value:
-                    self.messages.append(("showSignInComplete", None))
+                if success:
+                    self.messages.append(("showSignInComplete", state))
             elif kind == "exit":
                 success = value == 0 and not self.stopped
                 self.status = "Остановлено" if self.stopped else f"Процесс завершён · код {value}"
