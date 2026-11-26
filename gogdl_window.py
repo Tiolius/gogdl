@@ -278,6 +278,8 @@ def run():
                     backend.begin_login(open_login_browser, browser_callback_urls)
                 elif action == "saveToken" and isinstance(value, str):
                     backend.save_manual_token(value)
+                elif action == "removeToken":
+                    backend.remove_token()
                 elif action == "cancelLogin":
                     backend.cancel_login()
             except (OSError, ValueError, TypeError) as error:

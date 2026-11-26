@@ -396,6 +396,16 @@ class Backend:
         self.status = self.login_status = "Токен GOG сохранён"
         self.dirty = True
 
+    def remove_token(self):
+        if self.process or self.authenticating or self.updating_app:
+            return
+        try:
+            (PROJECT / "gog-token.dat").unlink(missing_ok=True)
+        except OSError:
+            raise ValueError("Не удалось удалить токен GOG") from None
+        self.status = self.login_status = "Токен GOG удалён"
+        self.dirty = True
+
     def exchange_code(self, code):
         self.status = self.login_status = "Получение токена GOG…"
         self.dirty = True

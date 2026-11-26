@@ -41,7 +41,8 @@ const russian = {
     "The previous update is incompatible. Discard it and continue?": "Предыдущее обновление несовместимо. Сбросить его и продолжить?",
     "GOG access token": "Токен доступа GOG",
     "Paste an access token or token JSON": "Вставьте токен доступа или JSON с токеном",
-    "Save token": "Сохранить токен",
+    "Save token": "Сохранить токен", "Remove token": "Удалить токен",
+    "Remove the saved GOG token from this device?": "Удалить сохранённый токен GOG с этого устройства?",
     "Sign in with browser": "Войти через браузер", "Cancel sign-in": "Отменить вход",
     "Remove the password saved by an older version": "Удалить пароль, сохранённый в прежней версии",
     "Browse…": "Обзор…", "Stop the current operation?": "Остановить текущую операцию?",
@@ -79,7 +80,8 @@ const english = {
     "Время ожидания входа истекло": "Sign-in timed out",
     "Введите токен доступа GOG или JSON с токеном.": "Enter a GOG access token or token JSON.",
     "Не удалось сохранить токен GOG": "Could not save the GOG token",
-    "Токен GOG сохранён": "GOG token saved",
+    "Токен GOG сохранён": "GOG token saved", "Токен GOG удалён": "GOG token removed",
+    "Не удалось удалить токен GOG": "Could not remove the GOG token",
     "Чтение каталога…": "Reading catalog…", "Сначала обновите каталог": "Refresh the catalog first",
     "Не удалось прочитать каталог": "Could not read the catalog", "недоступно": "unavailable",
     "Проверка каталога…": "Refreshing catalog…", "Загрузка…": "Downloading…",
@@ -171,6 +173,9 @@ function refreshAccount() {
     cancel.hidden = !state?.awaitingLogin;
     if (cancel.hidden)
         cancel.disabled = false;
+    const remove = button("removeAccountToken");
+    remove.hidden = !state?.signedIn || !!state?.authenticating;
+    remove.disabled = !!state?.busy;
     const credential = get("accountCredential");
     const authenticating = !!state?.authenticating;
     get("accountCredentialLabel").hidden = authenticating;
@@ -330,7 +335,17 @@ function renderSettings() {
         field.id = "accountCredentialField";
         field.className = "actions account-credential";
         field.append(credential, saveCredential);
-        form.append(account, login, cancel, credentialLabel, field);
+        const remove = document.createElement("button");
+        remove.id = "removeAccountToken";
+        remove.textContent = tr("Remove token");
+        remove.onclick = () => {
+            if (confirm(tr("Remove the saved GOG token from this device?")))
+                send("removeToken");
+        };
+        const actions = document.createElement("div");
+        actions.className = "actions";
+        actions.append(login, cancel, remove);
+        form.append(account, actions, credentialLabel, field);
         refreshAccount();
         if (settings.savedLogin) {
             const forget = document.createElement("button");
