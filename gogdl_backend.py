@@ -13,6 +13,7 @@ import shutil
 import subprocess
 import sys
 import threading
+import time
 from collections import deque
 from dataclasses import asdict
 from fnmatch import fnmatch
@@ -22,7 +23,7 @@ from urllib.parse import parse_qs, urlencode, urlsplit
 from gogdl_updater import download_update
 from gogdl_settings import DOWNLOAD_FIELDS, LOG_FIELDS, UPDATE_FIELDS, cli_options, language_codes, load_settings, save_settings, validate_settings
 
-APP_VERSION = "0.3.0"
+APP_VERSION = "0.3.1"
 APP_AUTHOR = "Evered"
 APP_VERSION_DATE = "2026-11-27"
 PROJECT = Path(__file__).resolve().parent
@@ -113,6 +114,7 @@ class Backend:
         self.updating_app = False
         self.app_update_status = ""
         self.login_state = None
+        self.login_cancel = None
         self.login_status = ""
         self.free_space = "…"
         self.disk_pending = False
@@ -315,7 +317,7 @@ class Backend:
 
         threading.Thread(target=check, daemon=True).start()
 
-    def begin_login(self, open_browser):
+    def begin_login(self, open_browser, callback_urls):
         if self.process or self.authenticating or self.updating_app:
             return
         state = secrets.token_urlsafe(24)
@@ -326,22 +328,33 @@ class Backend:
             self.status = self.login_status = "Не удалось открыть браузер"
             return
         self.login_state = state
+        cancel = self.login_cancel = threading.Event()
         self.authenticating = True
-        self.status = self.login_status = "Войдите в GOG и вставьте ссылку после входа"
+        self.status = self.login_status = "Войдите в GOG в браузере. Приложение получит токен автоматически"
 
-    def complete_login(self, url):
-        if not self.login_state:
-            return
-        code = callback_code(url, self.login_state)
-        if not code:
-            self.status = self.login_status = "Вставьте полный адрес страницы после входа из GOGDL"
-            self.dirty = True
-            return
-        self.login_state = None
-        self.exchange_code(code)
+        def wait_for_callback():
+            deadline = time.monotonic() + 600
+            try:
+                while not cancel.is_set() and time.monotonic() < deadline:
+                    for url in callback_urls():
+                        if code := callback_code(url, state):
+                            self.events.put(("browserCallback", (state, code, "")))
+                            return
+                    cancel.wait(0.5)
+            except Exception:
+                # Do not expose URLs or authorization codes from browser errors.
+                error = "Не удалось отследить завершение входа в браузере"
+            else:
+                error = "Время ожидания входа истекло"
+            if not cancel.is_set():
+                self.events.put(("browserCallback", (state, None, error)))
+
+        threading.Thread(target=wait_for_callback, daemon=True).start()
 
     def cancel_login(self):
         if self.login_state:
+            self.login_cancel.set()
+            self.login_cancel = None
             self.login_state = None
             self.authenticating = False
             self.status = self.login_status = "Вход отменён"
@@ -429,6 +442,18 @@ class Backend:
                 else:
                     self.updating_app = False
                     self.status = self.app_update_status = "Установлена актуальная версия GOGDL"
+            elif kind == "browserCallback":
+                state, code, error = value
+                if self.login_state != state:
+                    continue
+                self.login_state = None
+                self.login_cancel = None
+                if code:
+                    self.messages.append(("focusAfterLogin", None))
+                    self.exchange_code(code)
+                else:
+                    self.authenticating = False
+                    self.status = self.login_status = error
             elif kind == "auth":
                 self.authenticating = False
                 self.status = self.login_status = "Вход в GOG выполнен" if value else "Не удалось получить токен GOG"

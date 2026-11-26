@@ -7,6 +7,7 @@ import queue
 import re
 import subprocess
 import sys
+from ctypes import wintypes
 from pathlib import Path
 
 from gogdl_backend import Backend, PROJECT
@@ -49,6 +50,71 @@ def open_login_browser(url):
         else:
             return
     os.startfile(url)
+
+
+def browser_callback_windows():
+    """Find ordinary Chromium and Firefox windows showing the GOG return page."""
+    win = ctypes.WinDLL("user32")
+    callback_type = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+    win.EnumWindows.argtypes = (callback_type, wintypes.LPARAM)
+    win.IsWindowVisible.argtypes = (wintypes.HWND,)
+    win.GetClassNameW.argtypes = (wintypes.HWND, wintypes.LPWSTR, ctypes.c_int)
+    win.GetWindowTextW.argtypes = win.GetClassNameW.argtypes
+    windows = []
+
+    @callback_type
+    def inspect_window(handle, _):
+        if not win.IsWindowVisible(handle):
+            return True
+        name = ctypes.create_unicode_buffer(64)
+        win.GetClassNameW(handle, name, len(name))
+        if name.value not in {"Chrome_WidgetWin_1", "MozillaWindowClass"}:
+            return True
+        title = ctypes.create_unicode_buffer(64)
+        win.GetWindowTextW(handle, title, len(title))
+        if re.match(r"^(?:https://)?embed[.]gog[.]com(?:[/\s]|$)", title.value, re.IGNORECASE):
+            windows.append(handle)
+        return True
+
+    win.EnumWindows(inspect_window, 0)
+    return windows
+
+
+def browser_callback_urls():
+    import clr
+
+    clr.AddReference("UIAutomationTypes")
+    clr.AddReference("UIAutomationClient")
+    from System import IntPtr, SystemException
+    from System.Windows.Automation import AutomationElement, ControlType, TreeWalker, ValuePattern
+
+    walker = TreeWalker.ControlViewWalker
+    for handle in browser_callback_windows():
+        try:
+            root = AutomationElement.FromHandle(IntPtr(handle))
+            if root is None:
+                continue
+            pending = [walker.GetFirstChild(root)]
+            visited = 0
+            while pending and visited < 256:
+                element = pending.pop()
+                if element is None:
+                    continue
+                visited += 1
+                pending.append(walker.GetNextSibling(element))
+                control = element.Current.ControlType
+                if control == ControlType.Document:
+                    continue
+                if control == ControlType.Edit:
+                    available, pattern = element.TryGetCurrentPattern(ValuePattern.Pattern)
+                    if available:
+                        address = pattern.Current.Value
+                        if address and address.startswith(("https://embed.gog.com/", "embed.gog.com/")):
+                            yield address if address.startswith("https://") else "https://" + address
+                pending.append(walker.GetFirstChild(element))
+        except (SystemException, RuntimeError):
+            # A browser window can close or replace its controls during navigation.
+            continue
 
 
 def run():
@@ -172,9 +238,7 @@ def run():
                 elif action == "openFolder":
                     os.startfile(PROJECT)
                 elif action == "login":
-                    backend.begin_login(open_login_browser)
-                elif action == "loginCallback" and isinstance(value, str):
-                    backend.complete_login(value)
+                    backend.begin_login(open_login_browser, browser_callback_urls)
                 elif action == "saveToken" and isinstance(value, str):
                     backend.save_manual_token(value)
                 elif action == "cancelLogin":
@@ -216,7 +280,12 @@ def run():
                     pending_update = data
                     form.Close()
                     return
-                push(kind, data)
+                if kind == "focusAfterLogin":
+                    if form.WindowState == FormWindowState.Minimized:
+                        form.WindowState = FormWindowState.Normal
+                    form.Activate()
+                else:
+                    push(kind, data)
             backend.messages.clear()
             if backend.dirty:
                 push("state", backend.snapshot())

@@ -55,8 +55,7 @@ const russian: Record<string, string> = {
   "The previous update is incompatible. Discard it and continue?": "Предыдущее обновление несовместимо. Сбросить его и продолжить?",
   "GOG access token": "Токен доступа GOG",
   "Paste an access token or token JSON": "Вставьте токен доступа или JSON с токеном",
-  "Save token": "Сохранить токен", "Finish sign-in": "Завершить вход",
-  "Address after sign-in": "Адрес страницы после входа",
+  "Save token": "Сохранить токен",
   "Sign in with browser": "Войти через браузер", "Cancel sign-in": "Отменить вход",
   "Remove the password saved by an older version": "Удалить пароль, сохранённый в прежней версии",
   "Browse…": "Обзор…", "Stop the current operation?": "Остановить текущую операцию?",
@@ -89,8 +88,9 @@ const english: Record<string, string> = {
   "Не записывать вывод в gogrepo.log": "Disable writing to gogrepo.log", "Показывать отладочные сообщения": "Show debug messages",
   "Вход отменён": "Sign-in canceled", "Готово к запуску": "Ready",
   "Не удалось открыть браузер": "Could not open a browser",
-  "Войдите в GOG и вставьте ссылку после входа": "Sign in to GOG, then paste the full address of the resulting page",
-  "Вставьте полный адрес страницы после входа из GOGDL": "Paste the full address from the sign-in started in GOGDL",
+  "Войдите в GOG в браузере. Приложение получит токен автоматически": "Sign in to GOG in your browser. GOGDL will obtain the token automatically",
+  "Не удалось отследить завершение входа в браузере": "Could not detect completed sign-in in the browser",
+  "Время ожидания входа истекло": "Sign-in timed out",
   "Введите токен доступа GOG или JSON с токеном.": "Enter a GOG access token or token JSON.",
   "Не удалось сохранить токен GOG": "Could not save the GOG token",
   "Токен GOG сохранён": "GOG token saved",
@@ -184,18 +184,13 @@ function refreshAccount() {
   if (cancel.hidden) cancel.disabled = false;
 
   const credential = get<HTMLInputElement>("accountCredential");
-  const callback = !!state?.awaitingLogin;
-  const mode = callback ? "callback" : "token";
-  if (credential.dataset.mode !== mode) {
-    credential.dataset.mode = mode;
-    credential.value = "";
-  }
-  get("accountCredentialLabel").textContent = tr(callback ? "Address after sign-in" : "GOG access token");
-  credential.placeholder = callback ? "" : state?.signedIn ? "••••••••" : tr("Paste an access token or token JSON");
-  credential.disabled = !!state?.busy && !callback;
-  const save = button("saveAccountCredential");
-  save.textContent = tr(callback ? "Finish sign-in" : "Save token");
-  save.disabled = credential.disabled || !credential.value.trim();
+  const authenticating = !!state?.authenticating;
+  get("accountCredentialLabel").hidden = authenticating;
+  get("accountCredentialField").hidden = authenticating;
+  if (authenticating) credential.value = "";
+  credential.placeholder = state?.signedIn ? "••••••••" : tr("Paste an access token or token JSON");
+  credential.disabled = !!state?.busy;
+  button("saveAccountCredential").disabled = credential.disabled || !credential.value.trim();
 }
 
 function renderState(next: State) {
@@ -317,6 +312,7 @@ function renderSettings() {
     const credentialLabel = document.createElement("label");
     credentialLabel.id = "accountCredentialLabel";
     credentialLabel.htmlFor = "accountCredential";
+    credentialLabel.textContent = tr("GOG access token");
     const credential = document.createElement("input");
     credential.id = "accountCredential";
     credential.type = "password";
@@ -325,7 +321,7 @@ function renderSettings() {
     saveCredential.id = "saveAccountCredential";
     saveCredential.textContent = tr("Save token");
     saveCredential.onclick = () => {
-      send(state?.awaitingLogin ? "loginCallback" : "saveToken", credential.value.trim());
+      send("saveToken", credential.value.trim());
       credential.value = "";
       saveCredential.disabled = true;
     };
@@ -334,6 +330,7 @@ function renderSettings() {
       if (event.key === "Enter" && !saveCredential.disabled) saveCredential.click();
     };
     const field = document.createElement("div");
+    field.id = "accountCredentialField";
     field.className = "actions account-credential";
     field.append(credential, saveCredential);
     form.append(account, login, cancel, credentialLabel, field);
