@@ -24,6 +24,10 @@ function setIconLabel(control: HTMLButtonElement, name: string, label: string) {
 }
 const search = get<HTMLInputElement>("search");
 const matches = get("matches");
+const languagePicker = get("languagePicker");
+const languageButton = button("language");
+const languageOptions = get("languageOptions");
+const languageChoices = Array.from(languageOptions.querySelectorAll<HTMLButtonElement>("button"));
 const selected = new Set<string>();
 let selectedGame: Game | undefined;
 let games: Game[] = [];
@@ -44,7 +48,7 @@ const russian: Record<string, string> = {
   "Download selected": "Скачать выбранные", "Download one game": "Одна игра из каталога",
   "Download game": "Скачать игру", "Reading catalog…": "Чтение каталога…", "Activity log": "Журнал выполнения",
   "Open project folder": "Открыть папку проекта", "Stop": "Остановить",
-  "Back": "Назад", "Settings sections": "Разделы настроек", "Switch to English": "Переключить на английский",
+  "Back": "Назад", "Settings sections": "Разделы настроек", "Interface language": "Язык интерфейса",
   "GOGDL version": "Версия GOGDL", "Author": "Автор", "Version date": "Дата версии", "Save": "Сохранить",
   "Update": "Обновить", "Updates list": "Список обновлений",
   "Search by title or ID": "Поиск по названию или ID", "Show games": "Показать список игр",
@@ -171,10 +175,12 @@ function showDialog(message: string, action?: string): Promise<boolean> {
 
 function localizePage() {
   document.documentElement.lang = settings?.language ?? "en";
-  const language = button("language");
-  language.textContent = document.documentElement.lang.toUpperCase();
-  language.title = settings?.language === "ru" ? tr("Switch to English") : "Switch to Russian";
-  language.setAttribute("aria-label", language.title);
+  languageButton.title = tr("Interface language");
+  languageButton.setAttribute("aria-label", languageButton.title);
+  languageOptions.setAttribute("aria-label", languageButton.title);
+  for (const choice of languageChoices) {
+    choice.setAttribute("aria-pressed", String(choice.dataset.language === document.documentElement.lang));
+  }
   document.querySelectorAll<HTMLElement>("[data-text]").forEach(element => {
     element.textContent = tr(element.dataset.text ?? "");
   });
@@ -441,10 +447,14 @@ search.onkeydown = event => {
 };
 document.addEventListener("click", event => {
   if (!(event.target as HTMLElement).closest(".field")) matches.hidden = true;
+  if (!languageOptions.hidden && !languagePicker.contains(event.target as Node)) showLanguageOptions(false);
 });
 document.addEventListener("keydown", event => {
   if (event.key !== "Escape" || appDialog.open) return;
-  if (!matches.hidden) { matches.hidden = true; search.focus(); }
+  if (!languageOptions.hidden) {
+    showLanguageOptions(false);
+    languageButton.focus();
+  } else if (!matches.hidden) { matches.hidden = true; search.focus(); }
   else if (!get("preferences").hidden) closeSettings();
 });
 button("showGames").onclick = () => {
@@ -458,7 +468,22 @@ button("settings").onclick = () => {
   get("home").hidden = true;
   renderSettings();
 };
-button("language").onclick = () => send("language", settings?.language === "ru" ? "en" : "ru");
+function showLanguageOptions(open: boolean) {
+  languageOptions.hidden = !open;
+  languageButton.setAttribute("aria-expanded", String(open));
+}
+languageButton.onclick = () => showLanguageOptions(languageOptions.hidden);
+languagePicker.addEventListener("focusout", event => {
+  if (!languagePicker.contains(event.relatedTarget as Node | null)) showLanguageOptions(false);
+});
+for (const choice of languageChoices) {
+  choice.onclick = () => {
+    showLanguageOptions(false);
+    languageButton.focus();
+    const language = choice.dataset.language;
+    if (language !== settings?.language) send("language", language);
+  };
+}
 button("updateApp").onclick = async () => {
   if (Object.keys(draft).length) {
     void showDialog(tr("Save your settings first."));

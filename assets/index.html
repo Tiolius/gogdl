@@ -10,7 +10,13 @@
 </head>
 <body class="app-window">
   <header><strong data-text="GOG game catalog">GOG game catalog</strong><div class="actions">
-    <button id="language" type="button" title="Switch to Russian" aria-label="Switch to Russian">EN</button>
+    <div id="languagePicker">
+      <button id="language" type="button" title="Interface language" aria-label="Interface language" aria-expanded="false" aria-controls="languageOptions"><span class="material language-symbol" aria-hidden="true"></span></button>
+      <div id="languageOptions" role="group" aria-label="Interface language" hidden>
+        <button type="button" data-language="ru" lang="ru" aria-pressed="false"><span class="language-flag flag-ru" aria-hidden="true"></span>Русский</button>
+        <button type="button" data-language="en" lang="en" aria-pressed="true"><span class="language-flag flag-us" aria-hidden="true"></span>English</button>
+      </div>
+    </div>
     <button id="theme" title="Toggle theme" aria-label="Toggle theme"><span class="material theme-symbol" aria-hidden="true"></span></button>
     <button id="settings"><span class="material settings-symbol" aria-hidden="true"></span><span data-text="Settings">Settings</span></button>
   </div></header>
