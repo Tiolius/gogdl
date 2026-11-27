@@ -23,7 +23,7 @@ from urllib.parse import parse_qs, urlencode, urlsplit
 from gogdl_updater import download_update
 from gogdl_settings import DOWNLOAD_FIELDS, LOG_FIELDS, UPDATE_FIELDS, cli_options, language_codes, load_settings, save_settings, validate_settings
 
-APP_VERSION = "0.3.5"
+APP_VERSION = "0.3.6"
 APP_AUTHOR = "Evered"
 APP_VERSION_DATE = "2026-11-27"
 PROJECT = Path(__file__).resolve().parent
@@ -225,9 +225,11 @@ class Backend:
         save_settings(SETTINGS, updated)
         self.settings = updated
 
-    def start(self, args):
+    def start(self, args, *, keep_log=False):
         if self.process or self.authenticating or self.updating_app:
             return False
+        if not keep_log:
+            self.logs.clear()
         python = Path(sys.executable)
         if python.name.lower() == "pythonw.exe":
             python = python.with_name("python.exe")
@@ -278,9 +280,9 @@ class Backend:
         else:
             self.start([*self.download_args, "-ids", chosen[0]])
 
-    def next_download(self):
+    def next_download(self, *, keep_log=False):
         self.current = self.batch.popleft() if self.batch else None
-        if self.current and not self.start([*self.download_args, "-ids", self.current]):
+        if self.current and not self.start([*self.download_args, "-ids", self.current], keep_log=keep_log):
             self.batch.clear()
             self.current = None
 
@@ -320,6 +322,7 @@ class Backend:
     def begin_login(self, open_browser, callback_urls):
         if self.process or self.authenticating or self.updating_app:
             return
+        self.logs.clear()
         state = secrets.token_urlsafe(24)
         self.dirty = True
         try:
@@ -491,7 +494,7 @@ class Backend:
                 elif self.current:
                     if success:
                         self.pending.pop(self.current, None)
-                        self.next_download()
+                        self.next_download(keep_log=True)
                     else:
                         self.batch.clear()
                         self.current = None
